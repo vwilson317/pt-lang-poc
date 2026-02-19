@@ -156,6 +156,9 @@ export function FlashCard({
       <Animated.View style={[styles.card, animatedCardStyle]}>
         <View style={styles.inner}>
           <Text style={styles.pt}>{word.pt}</Text>
+          {word.pronHintEn != null && (
+            <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+          )}
 
           {uiState === 'PROMPT' && (
             <Pressable
