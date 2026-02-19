@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -8,9 +8,11 @@ import Animated, {
   withTiming,
   runOnJS,
 } from 'react-native-reanimated';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import type { Word } from '../types/word';
 import type { UIState } from '../types/session';
 import { theme } from '../theme';
+import { RATE_BASELINE, RATE_DECODE, RATE_CHALLENGE } from '../lib/audio';
 
 const SWIPE_THRESHOLD = 120;
 const springConfig = { damping: 18, stiffness: 120 };
@@ -25,9 +27,12 @@ type FlashCardProps = {
   onSwipeRight: () => void;
   onChooseOption: (index: number) => void;
   onAdvance: () => void;
-  onPlayAudio?: () => void;
+  onPlayAudio?: (rate: number) => void;
   disabled?: boolean;
 };
+
+const DOUBLE_TAP_MS = 300;
+const SPEED_INDICATOR_MS = 600;
 
 export function FlashCard({
   word,
@@ -44,6 +49,54 @@ export function FlashCard({
 }: FlashCardProps) {
   const translateX = useSharedValue(0);
   const cardWidth = 320;
+
+  const [speedIndicator, setSpeedIndicator] = useState<number | null>(null);
+  const speedIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapTime = useRef<number>(0);
+
+  const clearSpeedIndicator = useCallback(() => {
+    if (speedIndicatorTimer.current) {
+      clearTimeout(speedIndicatorTimer.current);
+      speedIndicatorTimer.current = null;
+    }
+    setSpeedIndicator(null);
+  }, []);
+
+  const showSpeedThenClear = useCallback((rate: number) => {
+    if (rate === RATE_BASELINE) return;
+    setSpeedIndicator(rate);
+    if (speedIndicatorTimer.current) clearTimeout(speedIndicatorTimer.current);
+    speedIndicatorTimer.current = setTimeout(clearSpeedIndicator, SPEED_INDICATOR_MS);
+  }, [clearSpeedIndicator]);
+
+  const handlePlayAtRate = useCallback(
+    (rate: number) => {
+      onPlayAudio?.(rate);
+      showSpeedThenClear(rate);
+    },
+    [onPlayAudio, showSpeedThenClear]
+  );
+
+  const handlePress = useCallback(() => {
+    const now = Date.now();
+    const isDoubleTap = now - lastTapTime.current <= DOUBLE_TAP_MS;
+    lastTapTime.current = now;
+    if (isDoubleTap) {
+      handlePlayAtRate(RATE_CHALLENGE);
+    } else {
+      handlePlayAtRate(RATE_BASELINE);
+    }
+  }, [handlePlayAtRate]);
+
+  const handleLongPress = useCallback(() => {
+    handlePlayAtRate(RATE_DECODE);
+  }, [handlePlayAtRate]);
+
+  useEffect(() => {
+    return () => {
+      if (speedIndicatorTimer.current) clearTimeout(speedIndicatorTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (uiState === 'REVEAL_DONT_KNOW') {
@@ -105,15 +158,21 @@ export function FlashCard({
           <Text style={styles.pt}>{word.pt}</Text>
 
           {uiState === 'PROMPT' && (
-            <TouchableOpacity
+            <Pressable
               style={styles.audioButton}
-              onPress={onPlayAudio}
+              onPress={handlePress}
+              onLongPress={handleLongPress}
               disabled={disabled}
-              activeOpacity={0.8}
             >
-              <Text style={styles.audioIcon}>🔊</Text>
-              <Text style={styles.audioLabel}>Tap to play</Text>
-            </TouchableOpacity>
+              {speedIndicator != null ? (
+                <Text style={styles.speedLabel}>{speedIndicator}x</Text>
+              ) : (
+                <>
+                  <FontAwesome5 name="volume-up" size={22} color={theme.gold} solid />
+                  <Text style={styles.audioLabel}>Tap to play</Text>
+                </>
+              )}
+            </Pressable>
           )}
 
           {uiState === 'REVEAL_DONT_KNOW' && (
@@ -195,7 +254,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: 'rgba(244,196,48,0.15)',
   },
-  audioIcon: { fontSize: 24 },
+  speedLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.gold,
+  },
   audioLabel: {
     fontSize: 14,
     color: theme.textSecondary,

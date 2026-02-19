@@ -27,3 +27,59 @@ export async function incrementRunsCount(): Promise<number> {
   await AsyncStorage.setItem(KEY_RUNS_COUNT, String(next));
   return next;
 }
+
+// --- Per-word audio adaptation (optional, local only) ---
+
+export type WordAudioState = {
+  playSlowOnce?: boolean;
+  knowStreak?: number;
+};
+
+const KEY_WORD_AUDIO_PREFIX = 'wordAudio:';
+
+export async function getWordAudioState(wordId: string): Promise<WordAudioState> {
+  const raw = await AsyncStorage.getItem(KEY_WORD_AUDIO_PREFIX + wordId);
+  if (raw == null) return {};
+  try {
+    const o = JSON.parse(raw) as WordAudioState;
+    return {
+      playSlowOnce: Boolean(o.playSlowOnce),
+      knowStreak: typeof o.knowStreak === 'number' ? o.knowStreak : 0,
+    };
+  } catch {
+    return {};
+  }
+}
+
+export async function setWordAudioState(wordId: string, state: WordAudioState): Promise<void> {
+  await AsyncStorage.setItem(KEY_WORD_AUDIO_PREFIX + wordId, JSON.stringify(state));
+}
+
+/** Record "Don't Know" (swipe left): next appearance may auto-play at 0.75x once. */
+export async function recordWordDontKnow(wordId: string): Promise<void> {
+  const s = await getWordAudioState(wordId);
+  await setWordAudioState(wordId, { ...s, playSlowOnce: true, knowStreak: 0 });
+}
+
+/** Record "Know" (correct answer): update streak for occasional 1.25x. */
+export async function recordWordKnow(wordId: string): Promise<void> {
+  const s = await getWordAudioState(wordId);
+  const streak = (s.knowStreak ?? 0) + 1;
+  await setWordAudioState(wordId, { ...s, knowStreak: streak, playSlowOnce: false });
+}
+
+/**
+ * Suggested speed for this word: 0.75 once after don't know, else 1.25 with 1/5 chance after 3+ know streak, else 1.0.
+ * Consumes playSlowOnce when returning 0.75.
+ */
+export async function getSuggestedSpeedAndConsume(wordId: string): Promise<number> {
+  const s = await getWordAudioState(wordId);
+  if (s.playSlowOnce) {
+    await setWordAudioState(wordId, { ...s, playSlowOnce: false });
+    return 0.75;
+  }
+  if ((s.knowStreak ?? 0) >= 3 && Math.random() < 0.2) {
+    return 1.25;
+  }
+  return 1.0;
+}
