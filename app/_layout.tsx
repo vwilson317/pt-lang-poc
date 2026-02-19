@@ -10,7 +10,7 @@ export default function RootLayout() {
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: theme.bgDark },
+            contentStyle: { backgroundColor: theme.bg0 },
             animation: 'slide_from_right',
           }}
         />
@@ -20,5 +20,5 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.bgDark },
+  root: { flex: 1, backgroundColor: theme.bg0 },
 });

@@ -8,10 +8,11 @@ import Animated, {
   withTiming,
   runOnJS,
 } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import type { Word } from '../types/word';
 import type { UIState } from '../types/session';
-import { theme } from '../theme';
+import { theme, cardSurfaceColors, audioButtonColors } from '../theme';
 import { RATE_BASELINE, RATE_DECODE, RATE_CHALLENGE } from '../lib/audio';
 
 const SWIPE_THRESHOLD = 120;
@@ -154,67 +155,80 @@ export function FlashCard({
   return (
     <GestureDetector gesture={panGesture}>
       <Animated.View style={[styles.card, animatedCardStyle]}>
-        <View style={styles.inner}>
-          <Text style={styles.pt}>{word.pt}</Text>
-          {word.pronHintEn != null && (
-            <Text style={styles.pronHint}>{word.pronHintEn}</Text>
-          )}
+        <LinearGradient
+          colors={[...cardSurfaceColors]}
+          style={styles.cardGradient}
+        >
+          <View style={styles.inner}>
+            <Text style={styles.pt}>{word.pt}</Text>
+            {word.pronHintEn != null && (
+              <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+            )}
 
-          {uiState === 'PROMPT' && (
-            <Pressable
-              style={styles.audioButton}
-              onPress={handlePress}
-              onLongPress={handleLongPress}
-              disabled={disabled}
-            >
-              {speedIndicator != null ? (
-                <Text style={styles.speedLabel}>{speedIndicator}x</Text>
-              ) : (
-                <>
-                  <FontAwesome5 name="volume-up" size={22} color={theme.gold} solid />
-                  <Text style={styles.audioLabel}>Tap to play</Text>
-                </>
-              )}
-            </Pressable>
-          )}
+            {uiState === 'PROMPT' && (
+              <Pressable
+                style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
+                onPress={handlePress}
+                onLongPress={handleLongPress}
+                disabled={disabled}
+              >
+                <LinearGradient
+                  colors={[...audioButtonColors]}
+                  style={StyleSheet.absoluteFill}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                />
+                <View style={styles.audioButtonContent}>
+                  {speedIndicator != null ? (
+                    <Text style={styles.speedLabel}>{speedIndicator}x</Text>
+                  ) : (
+                    <>
+                      <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
+                      <Text style={styles.audioLabel}>Tap to play</Text>
+                    </>
+                  )}
+                </View>
+              </Pressable>
+            )}
 
-          {uiState === 'REVEAL_DONT_KNOW' && (
-            <View style={styles.reveal}>
-              {word.en != null && (
-                <Text style={styles.en}>{word.en}</Text>
-              )}
-              {word.pronHintEn != null && (
-                <Text style={styles.pronHint}>{word.pronHintEn}</Text>
-              )}
-              <Text style={styles.autoAdvance}>Next in a moment…</Text>
-            </View>
-          )}
+            {uiState === 'REVEAL_DONT_KNOW' && (
+              <View style={styles.reveal}>
+                {word.en != null && (
+                  <Text style={styles.en}>{word.en}</Text>
+                )}
+                {word.pronHintEn != null && (
+                  <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+                )}
+                <Text style={styles.autoAdvance}>Next in a moment…</Text>
+              </View>
+            )}
 
-          {showChoices && (
-            <View style={styles.choices}>
-              {choiceOptions.map((opt, i) => {
-                const isCorrect = i === correctChoiceIndex;
-                const isSelected = i === selectedChoiceIndex;
-                const optionStyle = [
-                  styles.option,
-                  isFeedback && isCorrect && styles.optionCorrect,
-                  isFeedback && isSelected && !isCorrect && styles.optionWrong,
-                ];
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    style={optionStyle}
-                    onPress={() => !isFeedback && onChooseOption(i)}
-                    disabled={disabled || isFeedback}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.optionText}>{opt}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-        </View>
+            {showChoices && (
+              <View style={styles.choices}>
+                {choiceOptions.map((opt, i) => {
+                  const isCorrect = i === correctChoiceIndex;
+                  const isSelected = i === selectedChoiceIndex;
+                  const optionStyle = [
+                    styles.option,
+                    isFeedback && isCorrect && styles.optionCorrect,
+                    isFeedback && isSelected && !isCorrect && styles.optionWrong,
+                  ];
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      style={optionStyle}
+                      onPress={() => !isFeedback && onChooseOption(i)}
+                      disabled={disabled || isFeedback}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.optionText}>{opt}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </LinearGradient>
       </Animated.View>
     </GestureDetector>
   );
@@ -222,13 +236,20 @@ export function FlashCard({
 
 const styles = StyleSheet.create({
   card: {
-    width: '100%',
-    maxWidth: 320,
+    width: '88%' as const,
+    maxWidth: 360,
+    minHeight: theme.cardMinHeight,
     alignSelf: 'center',
-    backgroundColor: theme.cardBg,
-    borderRadius: theme.borderRadius,
+    borderRadius: theme.cardRadius,
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    overflow: 'hidden',
+    ...theme.cardShadow,
+  },
+  cardGradient: {
+    flex: 1,
     padding: 24,
-    ...theme.shadow,
+    borderRadius: theme.cardRadius,
   },
   inner: {
     alignItems: 'center',
@@ -239,32 +260,43 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     fontSize: 18,
-    color: theme.textSecondary,
+    color: theme.textMuted,
   },
   pt: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: theme.gold,
+    fontSize: theme.wordSize,
+    fontWeight: theme.wordWeight,
+    letterSpacing: theme.wordLetterSpacing,
+    color: theme.textPrimary,
     marginBottom: 16,
     textAlign: 'center',
   },
   audioButton: {
+    minHeight: theme.ctaMinHeight,
+    borderRadius: theme.ctaRadius,
+    overflow: 'hidden',
+    marginTop: 8,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audioButtonPressed: {
+    opacity: 0.98,
+    transform: [{ scale: 0.98 }],
+  },
+  audioButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(244,196,48,0.15)',
+    gap: 10,
   },
   speedLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: theme.gold,
+    fontSize: theme.buttonLabelSize,
+    fontWeight: theme.buttonLabelWeight,
+    color: theme.textPrimary,
   },
   audioLabel: {
-    fontSize: 14,
-    color: theme.textSecondary,
+    fontSize: theme.buttonLabelSize,
+    fontWeight: theme.buttonLabelWeight,
+    color: theme.textPrimary,
   },
   reveal: {
     alignItems: 'center',
@@ -278,13 +310,13 @@ const styles = StyleSheet.create({
   },
   pronHint: {
     fontSize: 16,
-    color: theme.goldLight,
+    color: theme.textMuted,
     fontStyle: 'italic',
     marginBottom: 12,
   },
   autoAdvance: {
-    fontSize: 12,
-    color: theme.textSecondary,
+    fontSize: theme.hudLabelSize,
+    color: theme.textMuted,
   },
   choices: {
     width: '100%',
@@ -294,21 +326,22 @@ const styles = StyleSheet.create({
   option: {
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderRadius: theme.optionRadius,
+    backgroundColor: theme.surfaceStrong,
+    borderWidth: 1,
+    borderColor: theme.stroke,
   },
   optionCorrect: {
-    backgroundColor: 'rgba(0,151,57,0.25)',
-    borderColor: theme.green,
+    borderColor: theme.good,
+    borderWidth: 2,
   },
   optionWrong: {
-    backgroundColor: 'rgba(233,30,140,0.2)',
-    borderColor: theme.pink,
+    borderColor: theme.bad,
+    borderWidth: 2,
   },
   optionText: {
     fontSize: 16,
+    fontWeight: '600',
     color: theme.textPrimary,
     textAlign: 'center',
   },

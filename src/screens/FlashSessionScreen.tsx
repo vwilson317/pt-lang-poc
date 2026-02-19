@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, ImageBackground } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
@@ -16,6 +16,8 @@ import {
 } from '../lib/storage';
 import { playWordAudio, RATE_BASELINE } from '../lib/audio';
 import { theme } from '../theme';
+
+const bgImage = require('../../v1/bg.png');
 
 export function FlashSessionScreen() {
   const insets = useSafeAreaInsets();
@@ -126,7 +128,11 @@ export function FlashSessionScreen() {
   }, [state.cleared]);
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <ImageBackground
+      source={bgImage}
+      style={[styles.screen, { paddingTop: (insets.top || 0) + theme.safeAreaTopOffset }]}
+      resizeMode="cover"
+    >
       <HeaderHUD
         rightCount={state.rightCount}
         wrongCount={state.wrongCount}
@@ -155,18 +161,19 @@ export function FlashSessionScreen() {
         onRunAgain={handleRunAgain}
         onDone={handleDone}
       />
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: theme.bgDark,
+    backgroundColor: theme.bg0,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
+    paddingVertical: theme.cardStagePaddingVertical,
     paddingHorizontal: 24,
   },
 });

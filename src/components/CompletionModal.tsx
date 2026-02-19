@@ -65,29 +65,29 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   box: {
-    backgroundColor: theme.cardBg,
-    borderRadius: theme.borderRadius,
+    backgroundColor: theme.surfaceStrong,
+    borderRadius: theme.cardRadius,
     padding: 28,
     width: '100%',
     maxWidth: 320,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: theme.gold,
+    borderWidth: 1,
+    borderColor: theme.stroke,
   },
   title: {
     fontSize: 24,
     fontWeight: '800',
-    color: theme.gold,
+    color: theme.textPrimary,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 16,
-    color: theme.textSecondary,
+    color: theme.textMuted,
     marginBottom: 16,
   },
   best: {
     fontSize: 14,
-    color: theme.goldLight,
+    color: theme.info,
     marginBottom: 20,
   },
   buttons: {
@@ -96,21 +96,21 @@ const styles = StyleSheet.create({
   },
   button: {
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: theme.optionRadius,
     alignItems: 'center',
   },
   primary: {
-    backgroundColor: theme.gold,
+    backgroundColor: theme.brand,
   },
   primaryText: {
     fontSize: 16,
     fontWeight: '700',
-    color: theme.bgDark,
+    color: theme.textPrimary,
   },
   secondary: {
     backgroundColor: 'transparent',
     borderWidth: 2,
-    borderColor: theme.textSecondary,
+    borderColor: theme.stroke,
   },
   secondaryText: {
     fontSize: 16,

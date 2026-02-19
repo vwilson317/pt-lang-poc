@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { theme } from '../theme';
 
 type HeaderHUDProps = {
@@ -10,10 +11,14 @@ type HeaderHUDProps = {
   frozen?: boolean;
 };
 
-function formatMs(ms: number): string {
+function formatElapsed(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+  if (h >= 1) {
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
@@ -35,69 +40,83 @@ export function HeaderHUD({
   }, [startedAt, frozen]);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.row}>
-        <View style={styles.badge}>
-          <Text style={styles.emoji}>✅</Text>
-          <Text style={styles.count}>{rightCount}</Text>
+    <View style={styles.wrapper}>
+      <View style={styles.container}>
+        <View style={styles.leftCluster}>
+          <View style={styles.pill}>
+            <FontAwesome5 name="check-circle" size={theme.iconSizeHud} color={theme.good} solid />
+            <Text style={styles.count}>{rightCount}</Text>
+          </View>
+          <View style={styles.pill}>
+            <FontAwesome5 name="times-circle" size={theme.iconSizeHud} color={theme.bad} solid />
+            <Text style={styles.count}>{wrongCount}</Text>
+          </View>
         </View>
-        <View style={styles.badge}>
-          <Text style={styles.emoji}>❌</Text>
-          <Text style={styles.count}>{wrongCount}</Text>
+        <View style={styles.middleCluster}>
+          <View style={styles.pill}>
+            <FontAwesome5 name="layer-group" size={theme.iconSizeHud} color={theme.brand} solid />
+            <Text style={styles.count}>{remaining}</Text>
+          </View>
         </View>
-        <View style={styles.badge}>
-          <Text style={styles.emoji}>🃏</Text>
-          <Text style={styles.count}>{remaining}</Text>
+        <View style={styles.rightCluster}>
+          {startedAt != null && (
+            <View style={styles.pill}>
+              <FontAwesome5 name="clock" size={theme.iconSizeHud} color={theme.info} solid />
+              <Text style={styles.count}>{formatElapsed(elapsedMs)}</Text>
+            </View>
+          )}
         </View>
       </View>
-      {startedAt != null && (
-        <View style={styles.timer}>
-          <Text style={styles.timerText}>⏱ {formatMs(elapsedMs)}</Text>
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: {
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
   container: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    paddingTop: 48,
-    backgroundColor: theme.bgDark,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(244,196,48,0.2)',
+    height: theme.hudHeight,
+    borderRadius: theme.hudRadius,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    paddingHorizontal: 12,
+    ...(Platform.OS === 'ios' && {
+      overflow: 'hidden',
+    }),
   },
-  row: {
+  leftCluster: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 20,
+    gap: 8,
   },
-  badge: {
+  middleCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rightCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  emoji: {
-    fontSize: 18,
+    height: 30,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    backgroundColor: theme.surfaceStrong,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   count: {
-    fontSize: 18,
+    fontSize: theme.hudNumberSize,
     fontWeight: '700',
     color: theme.textPrimary,
-  },
-  timer: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: 'rgba(244,196,48,0.15)',
-  },
-  timerText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.gold,
   },
 });
