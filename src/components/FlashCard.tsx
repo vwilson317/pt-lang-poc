@@ -17,6 +17,8 @@ import { RATE_BASELINE, RATE_DECODE, RATE_CHALLENGE } from '../lib/audio';
 
 const SWIPE_THRESHOLD = 120;
 const springConfig = { damping: 18, stiffness: 120 };
+/** Time to show the "Don't know" reveal (word + translation) before advancing. */
+const REVEAL_DONT_KNOW_MS = 1800;
 
 type FlashCardProps = {
   word: Word | null;
@@ -101,7 +103,7 @@ export function FlashCard({
 
   useEffect(() => {
     if (uiState === 'REVEAL_DONT_KNOW') {
-      const t = setTimeout(onAdvance, 900);
+      const t = setTimeout(onAdvance, REVEAL_DONT_KNOW_MS);
       return () => clearTimeout(t);
     }
     if (uiState === 'FEEDBACK_CORRECT') {
