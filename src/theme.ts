@@ -9,6 +9,7 @@ export const theme = {
   pink: '#e91e8c',
   purple: '#6a1b9a',
   textPrimary: '#ffffff',
+  white: '#ffffff',
   textSecondary: 'rgba(255,255,255,0.85)',
   cardBg: '#2d1b4e',
   shadow: {

@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "PT Flash",
+    "slug": "pt-lang-poc",
+    "version": "1.0.0",
+    "scheme": "ptflash",
+    "web": { "bundler": "metro" },
+    "plugins": ["expo-router", "expo-av"]
+  }
+}
