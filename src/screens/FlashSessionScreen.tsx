@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, Pressable } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
 import { CompletionModal } from '../components/CompletionModal';
 import { useSession } from '../state/useSession';
-import { getWordById } from '../data/words';
+import { getWordById, DECK_LENGTH } from '../data/words';
 import {
   getBestClearMs,
   setBestClearMs,
@@ -19,8 +20,13 @@ import { theme } from '../theme';
 
 const bgImage = require('../../v1/bg.png');
 
+const MIN_CARDS = 50;
+const DEFAULT_CARDS = 200;
+const MAX_CARDS = DECK_LENGTH;
+
 export function FlashSessionScreen() {
   const insets = useSafeAreaInsets();
+  const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
   const {
     state,
     remaining,
@@ -28,6 +34,7 @@ export function FlashSessionScreen() {
     swipeRight,
     chooseOption,
     advanceToNextCard,
+    startSession,
     startNewSession,
     getClearTimeMs,
   } = useSession();
@@ -37,7 +44,7 @@ export function FlashSessionScreen() {
   const userHasEnabledAudioRef = useRef(false);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
 
-  const currentWord = state.currentCardId
+  const currentWord = state?.currentCardId
     ? getWordById(state.currentCardId) ?? null
     : null;
 
@@ -48,33 +55,33 @@ export function FlashSessionScreen() {
   }, [currentWord]);
 
   const handleSwipeLeft = useCallback(() => {
-    if (state.currentCardId) recordWordDontKnow(state.currentCardId);
+    if (state?.currentCardId) recordWordDontKnow(state.currentCardId);
     swipeLeft();
-  }, [swipeLeft, state.currentCardId]);
+  }, [swipeLeft, state?.currentCardId]);
 
   // Record "Know" once per card when feedback is correct
   useEffect(() => {
     if (
-      state.uiState === 'FEEDBACK_CORRECT' &&
-      state.currentCardId &&
+      state?.uiState === 'FEEDBACK_CORRECT' &&
+      state?.currentCardId &&
       state.currentCardId !== lastRecordedCorrectIdRef.current
     ) {
       lastRecordedCorrectIdRef.current = state.currentCardId;
       recordWordKnow(state.currentCardId);
     }
-  }, [state.uiState, state.currentCardId]);
+  }, [state?.uiState, state?.currentCardId]);
 
   // Reset "recorded correct" when advancing to a new card
   useEffect(() => {
-    if (state.uiState === 'PROMPT') {
+    if (state?.uiState === 'PROMPT') {
       lastRecordedCorrectIdRef.current = null;
     }
-  }, [state.uiState, state.currentCardId]);
+  }, [state?.uiState, state?.currentCardId]);
 
   // Optional autoplay: after first tap, on new card use suggested speed (0.75 once after don't know, or 1.25 1/5 after 3+ know)
   useEffect(() => {
     if (
-      state.uiState !== 'PROMPT' ||
+      state?.uiState !== 'PROMPT' ||
       !currentWord ||
       !userHasEnabledAudioRef.current
     )
@@ -86,18 +93,18 @@ export function FlashSessionScreen() {
     return () => {
       cancelled = true;
     };
-  }, [state.currentCardId, state.uiState, currentWord]);
+  }, [state?.currentCardId, state?.uiState, currentWord]);
 
   // Auto-play when revealing "don't know" (hear the word at baseline)
   useEffect(() => {
-    if (state.uiState === 'REVEAL_DONT_KNOW' && currentWord) {
+    if (state?.uiState === 'REVEAL_DONT_KNOW' && currentWord) {
       playWordAudio(currentWord, RATE_BASELINE);
     }
-  }, [state.uiState, currentWord]);
+  }, [state?.uiState, currentWord]);
 
   // When session clears: persist best time and runs count
   useEffect(() => {
-    if (!state.cleared || lastClearedRef.current) return;
+    if (!state?.cleared || lastClearedRef.current) return;
     lastClearedRef.current = true;
     const clearMs = getClearTimeMs();
     if (clearMs != null) {
@@ -106,7 +113,7 @@ export function FlashSessionScreen() {
       });
       incrementRunsCount();
     }
-  }, [state.cleared, getClearTimeMs]);
+  }, [state?.cleared, getClearTimeMs]);
 
   const handleRunAgain = useCallback(() => {
     setModalDismissed(false);
@@ -118,14 +125,51 @@ export function FlashSessionScreen() {
     setModalDismissed(true);
   }, []);
 
-  const showModal = state.cleared && !modalDismissed;
+  const showModal = state?.cleared && !modalDismissed;
   const [bestTimeMs, setBestTimeMs] = React.useState<number | null>(null);
 
   useEffect(() => {
-    if (state.cleared) {
+    if (state?.cleared) {
       getBestClearMs().then(setBestTimeMs);
     }
-  }, [state.cleared]);
+  }, [state?.cleared]);
+
+  // Start screen: choose number of cards then begin
+  if (!state) {
+    const displayCount = Math.round(cardCount);
+    return (
+      <ImageBackground
+        source={bgImage}
+        style={[styles.screen, { paddingTop: (insets.top || 0) + theme.safeAreaTopOffset }]}
+        resizeMode="cover"
+      >
+        <View style={styles.startContent}>
+          <Text style={styles.startTitle}>Number of cards</Text>
+          <Text style={styles.startCount}>{displayCount}</Text>
+          <Slider
+            style={styles.slider}
+            minimumValue={MIN_CARDS}
+            maximumValue={MAX_CARDS}
+            step={1}
+            value={cardCount}
+            onValueChange={setCardCount}
+            minimumTrackTintColor={theme.brand}
+            maximumTrackTintColor={theme.stroke}
+            thumbTintColor={theme.brand}
+          />
+          <View style={styles.startHint}>
+            <Text style={styles.startHintText}>{MIN_CARDS} – {MAX_CARDS} (all)</Text>
+          </View>
+          <Pressable
+            style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+            onPress={() => startSession(displayCount)}
+          >
+            <Text style={styles.startButtonLabel}>Start</Text>
+          </Pressable>
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
     <ImageBackground
@@ -175,5 +219,51 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: theme.cardStagePaddingVertical,
     paddingHorizontal: 24,
+  },
+  startContent: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  startTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: theme.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  startCount: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  slider: {
+    width: '100%',
+    height: 48,
+  },
+  startHint: {
+    marginBottom: 32,
+  },
+  startHintText: {
+    fontSize: 14,
+    color: theme.textMuted,
+    textAlign: 'center',
+  },
+  startButton: {
+    backgroundColor: theme.brand,
+    minHeight: theme.ctaMinHeight,
+    borderRadius: theme.ctaRadius,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  startButtonPressed: {
+    opacity: 0.9,
+  },
+  startButtonLabel: {
+    fontSize: theme.buttonLabelSize,
+    fontWeight: theme.buttonLabelWeight,
+    color: theme.textPrimary,
   },
 });

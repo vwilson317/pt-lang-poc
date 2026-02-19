@@ -7,20 +7,19 @@ import {
 } from '../data/words';
 
 const DECK = getWords();
-const DECK_COUNT = DECK.length;
 
 function getRemaining(state: SessionState): number {
   return state.deckCount - state.correctSet.size;
 }
 
-function createInitialState(): SessionState {
-  const queue = getShuffledWordIds();
+function createInitialState(cardCount: number): SessionState {
+  const queue = getShuffledWordIds(cardCount);
   return {
     queue,
     correctSet: new Set(),
     rightCount: 0,
     wrongCount: 0,
-    deckCount: DECK_COUNT,
+    deckCount: queue.length,
     startedAt: Date.now(),
     cleared: false,
     currentCardId: queue[0] ?? null,
@@ -38,14 +37,14 @@ function peekNextCardId(state: SessionState): string | null {
 }
 
 export function useSession() {
-  const [state, setState] = useState<SessionState>(createInitialState);
+  const [state, setState] = useState<SessionState | null>(null);
   const clearedAtMs = useRef<number | null>(null);
 
-  const remaining = getRemaining(state);
+  const remaining = state ? getRemaining(state) : 0;
 
   const advanceToNextCard = useCallback(() => {
     setState((prev) => {
-      if (prev.cleared) return prev;
+      if (!prev || prev.cleared) return prev;
       const nextId = peekNextCardId(prev);
       if (nextId === null) {
         return {
@@ -68,7 +67,7 @@ export function useSession() {
 
   const swipeLeft = useCallback(() => {
     setState((prev) => {
-      if (prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
+      if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
       const id = prev.currentCardId;
       const newQueue = [...prev.queue.filter((x) => x !== id), id];
       return {
@@ -82,7 +81,7 @@ export function useSession() {
 
   const swipeRight = useCallback(() => {
     setState((prev) => {
-      if (prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
+      if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
       const word = DECK.find((w) => w.id === prev.currentCardId);
       const correctEn = word?.en ?? '';
       const distractors = getDistractors(correctEn, 2, prev.currentCardId);
@@ -99,7 +98,7 @@ export function useSession() {
 
   const chooseOption = useCallback((choiceIndex: number) => {
     setState((prev) => {
-      if (prev.uiState !== 'CHOICES' || prev.currentCardId === null) return prev;
+      if (!prev || prev.uiState !== 'CHOICES' || prev.currentCardId === null) return prev;
       const word = DECK.find((w) => w.id === prev.currentCardId);
       const correctEn = word?.en;
       if (!correctEn) return prev;
@@ -138,20 +137,23 @@ export function useSession() {
     });
   }, []);
 
-  const startNewSession = useCallback(() => {
+  const startSession = useCallback((cardCount: number) => {
     clearedAtMs.current = null;
-    setState(createInitialState());
+    setState(createInitialState(cardCount));
+  }, []);
+
+  const startNewSession = useCallback((cardCount?: number) => {
+    clearedAtMs.current = null;
+    setState((prev) => createInitialState(cardCount ?? prev?.deckCount ?? 0));
   }, []);
 
   const getClearTimeMs = useCallback(() => {
-    if (state.cleared && state.startedAt && clearedAtMs.current) {
-      return clearedAtMs.current - state.startedAt;
-    }
-    return null;
-  }, [state.cleared, state.startedAt]);
+    if (!state || !state.cleared || !state.startedAt || !clearedAtMs.current) return null;
+    return clearedAtMs.current - state.startedAt;
+  }, [state?.cleared, state?.startedAt]);
 
   /** Legacy: choice options are in state.choiceOptions; this avoids "getChoiceOptions is not defined" from cached bundles. */
-  const getChoiceOptions = useCallback((_wordId: string) => state.choiceOptions ?? [], [state.choiceOptions]);
+  const getChoiceOptions = useCallback((_wordId: string) => state?.choiceOptions ?? [], [state?.choiceOptions]);
 
   return {
     state,
@@ -161,6 +163,7 @@ export function useSession() {
     chooseOption,
     advanceToNextCard,
     getChoiceOptions,
+    startSession,
     startNewSession,
     getClearTimeMs,
   };

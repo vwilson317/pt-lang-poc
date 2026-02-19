@@ -624,9 +624,13 @@ export function getWordById(id: string): Word | undefined {
   return WORDS.find((w) => w.id === id);
 }
 
-/** Returns a new shuffled array of all word IDs for session start. */
-export function getShuffledWordIds(): string[] {
-  return shuffle(WORDS.map((w) => w.id));
+/** Total number of words in the deck (for slider max = "all"). */
+export const DECK_LENGTH = WORDS.length;
+
+/** Returns a new shuffled array of word IDs for session start. If maxCount is given, returns up to that many; otherwise all. */
+export function getShuffledWordIds(maxCount?: number): string[] {
+  const ids = shuffle(WORDS.map((w) => w.id));
+  return maxCount != null ? ids.slice(0, maxCount) : ids;
 }
 
 /** Pick N random distractors (other words' en) excluding excludeEn. */
