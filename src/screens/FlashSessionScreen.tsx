@@ -7,6 +7,7 @@ import {
   Pressable,
   TextInput,
   ScrollView,
+  Platform,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
@@ -56,6 +57,23 @@ function parseCustomWordInput(raw: string): string[] {
     parsed.push(token);
   }
   return parsed;
+}
+
+async function readClipboardText(): Promise<string> {
+  if (Platform.OS === 'web') {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        return await navigator.clipboard.readText();
+      }
+    } catch {
+      // fallback to expo-clipboard below
+    }
+  }
+  try {
+    return await Clipboard.getStringAsync();
+  } catch {
+    return '';
+  }
 }
 
 export function FlashSessionScreen() {
@@ -161,7 +179,7 @@ export function FlashSessionScreen() {
     if (!nextOpenState) return;
     void (async () => {
       try {
-        const clipboardText = await Clipboard.getStringAsync();
+        const clipboardText = await readClipboardText();
         const prefilledInput = parseCustomWordInput(clipboardText).join(' ');
         if (!prefilledInput) return;
         setCustomInput(prefilledInput);
