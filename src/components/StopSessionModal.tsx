@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { BlurView } from 'expo-blur';
 import { theme } from '../theme';
 
 type StopSessionModalProps = {
@@ -26,6 +27,8 @@ export function StopSessionModal({
       onRequestClose={onResume}
     >
       <View style={styles.overlay}>
+        <BlurView intensity={46} tint="dark" style={styles.blurLayer} />
+        <View style={styles.scrim} />
         <View style={styles.box}>
           <Text style={styles.title}>Stop session?</Text>
           <View style={styles.buttons}>
@@ -34,19 +37,19 @@ export function StopSessionModal({
               onPress={onStopAndCopy}
               activeOpacity={0.8}
             >
-              <Text style={styles.primaryText}>
-                {hasMissedWords ? 'Copy + Stop' : 'Stop'}
-              </Text>
+              <View style={styles.primaryContent}>
+                {hasMissedWords && (
+                  <FontAwesome5 name="copy" size={15} color={theme.textPrimary} />
+                )}
+                <Text style={styles.primaryText}>Stop</Text>
+              </View>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, styles.secondary]}
               onPress={onResume}
               activeOpacity={0.8}
             >
-              <View style={styles.secondaryContent}>
-                <FontAwesome5 name="times-circle" size={16} color={theme.textPrimary} solid />
-                <Text style={styles.secondaryText}>Cancel</Text>
-              </View>
+              <Text style={styles.secondaryText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -58,10 +61,16 @@ export function StopSessionModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  blurLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.36)',
   },
   box: {
     backgroundColor: theme.surfaceStrong,
@@ -96,15 +105,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.textPrimary,
   },
+  primaryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   secondary: {
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: theme.stroke,
-  },
-  secondaryContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
   },
   secondaryText: {
     fontSize: 16,

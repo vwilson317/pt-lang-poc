@@ -228,6 +228,8 @@ export function FlashSessionScreen() {
     setStopModalVisible(false);
   }, []);
 
+  const toastBottomOffset = (insets.bottom || 0) + (state && !state.cleared && !stopModalVisible ? 86 : 16);
+
   const showNativeCopyToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
       ToastAndroid.show(message, ToastAndroid.SHORT);
@@ -312,9 +314,8 @@ export function FlashSessionScreen() {
           </Pressable>
         </View>
         {Platform.OS === 'web' && toastMessage && (
-          <View pointerEvents="none" style={[styles.webToastWrap, { bottom: (insets.bottom || 0) + 16 }]}>
+          <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
             <View style={styles.webToast}>
-              <FontAwesome5 name="check-circle" size={16} color={theme.good} solid />
               <Text style={styles.webToastText}>{toastMessage}</Text>
             </View>
           </View>
@@ -377,9 +378,8 @@ export function FlashSessionScreen() {
         onStopAndCopy={handleStopAndCopy}
       />
       {Platform.OS === 'web' && toastMessage && (
-        <View pointerEvents="none" style={[styles.webToastWrap, { bottom: (insets.bottom || 0) + 16 }]}>
+        <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
           <View style={styles.webToast}>
-            <FontAwesome5 name="check-circle" size={16} color={theme.good} solid />
             <Text style={styles.webToastText}>{toastMessage}</Text>
           </View>
         </View>
