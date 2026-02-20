@@ -240,6 +240,11 @@ export function useSession() {
     startFromOptions(nextOptions);
   }, [startFromOptions]);
 
+  const stopSession = useCallback(() => {
+    clearedAtMs.current = null;
+    setState(null);
+  }, []);
+
   const getClearTimeMs = useCallback(() => {
     if (!state || !state.cleared || !state.startedAt || !clearedAtMs.current) return null;
     return clearedAtMs.current - state.startedAt;
@@ -259,6 +264,7 @@ export function useSession() {
     getChoiceOptions,
     startSession,
     startNewSession,
+    stopSession,
     getClearTimeMs,
   };
 }
