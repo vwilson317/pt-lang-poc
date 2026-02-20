@@ -39,24 +39,76 @@ const MIN_CARDS = 50;
 const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 
+type ParsedCustomEntry = {
+  pt: string;
+  en?: string;
+};
+
 function normalizeWordToken(value: string): string {
   return value.replace(/\s+/g, '').trim();
 }
 
-function parseCustomWordInput(raw: string): string[] {
-  const entries = raw
-    .split(/[\s,;]+/)
-    .map(normalizeWordToken)
-    .filter(Boolean);
-  const parsed: string[] = [];
+function normalizeDefinitionToken(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+}
+
+function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
+  const tokens = raw.match(/[^\s,;]+/g) ?? [];
+  const parsed: ParsedCustomEntry[] = [];
   const seen = new Set<string>();
-  for (const token of entries) {
-    const key = token.toLocaleLowerCase();
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (token === ':' || token === '=' || token === '-') continue;
+
+    let ptToken = token;
+    let enToken: string | undefined;
+
+    const inlineSep = token.match(/^(.+?)([:=])(.*)$/);
+    if (inlineSep) {
+      ptToken = inlineSep[1];
+      enToken = normalizeDefinitionToken(inlineSep[3]);
+      if (!enToken && tokens[i + 1] && ![':', '=', '-'].includes(tokens[i + 1])) {
+        enToken = normalizeDefinitionToken(tokens[i + 1]);
+        i += 1;
+      }
+    } else if ((tokens[i + 1] === ':' || tokens[i + 1] === '=') && tokens[i + 2]) {
+      enToken = normalizeDefinitionToken(tokens[i + 2]);
+      i += 2;
+    } else if (tokens[i + 1] === '-' && tokens[i + 2]) {
+      enToken = normalizeDefinitionToken(tokens[i + 2]);
+      i += 2;
+    }
+
+    const pt = normalizeWordToken(ptToken);
+    if (!pt) continue;
+
+    const key = pt.toLocaleLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    parsed.push(token);
+
+    parsed.push({ pt, en: enToken });
   }
+
   return parsed;
+}
+
+function stringifyParsedCustomInput(entries: ParsedCustomEntry[]): string {
+  return entries
+    .map((entry) => (entry.en ? `${entry.pt}:${entry.en}` : entry.pt))
+    .join(' ');
+}
+
+async function resolveDefinitionForCustomWord(
+  pt: string,
+  providedDefinition?: string
+): Promise<string | undefined> {
+  if (providedDefinition) return providedDefinition;
+  // TODO: Fetch a Portuguese word definition when missing.
+  void pt;
+  return undefined;
 }
 
 async function readClipboardText(): Promise<string> {
@@ -126,8 +178,8 @@ export function FlashSessionScreen() {
   }, [customWords.length, cardCount]);
 
   const handleAddCustomWords = useCallback(async () => {
-    const parsedWords = parseCustomWordInput(customInput);
-    if (parsedWords.length === 0) {
+    const parsedEntries = parseCustomWordInput(customInput);
+    if (parsedEntries.length === 0) {
       setCustomFeedback(null);
       setCustomError('Enter at least one Portuguese word.');
       return;
@@ -137,16 +189,22 @@ export function FlashSessionScreen() {
     );
     const seed = Date.now();
     const additions: Word[] = [];
-    parsedWords.forEach((pt, index) => {
-      const key = pt.toLocaleLowerCase();
-      if (existingPt.has(key)) return;
+    for (let index = 0; index < parsedEntries.length; index += 1) {
+      const entry = parsedEntries[index];
+      const key = entry.pt.toLocaleLowerCase();
+      if (existingPt.has(key)) continue;
       existingPt.add(key);
+      const resolvedDefinition = await resolveDefinitionForCustomWord(
+        entry.pt,
+        entry.en
+      );
       additions.push({
         id: `custom-${seed}-${index}`,
-        pt,
+        pt: entry.pt,
+        en: resolvedDefinition,
         isCustom: true,
       });
-    });
+    }
     if (additions.length === 0) {
       setCustomFeedback(null);
       setCustomError('Those words are already in your custom cards.');
@@ -180,7 +238,9 @@ export function FlashSessionScreen() {
     void (async () => {
       try {
         const clipboardText = await readClipboardText();
-        const prefilledInput = parseCustomWordInput(clipboardText).join(' ');
+        const prefilledInput = stringifyParsedCustomInput(
+          parseCustomWordInput(clipboardText)
+        );
         if (!prefilledInput) return;
         setCustomInput(prefilledInput);
         setCustomFeedback(null);
@@ -412,8 +472,8 @@ export function FlashSessionScreen() {
             ]}
           >
             <Text style={styles.customTooltipText}>
-              Add Portuguese words only. Spaces are separators. Plus button also
-              pre-fills from your clipboard.
+              Add Portuguese words separated by spaces. Optional definition format:
+              casa:house, casa=house, or casa - house.
             </Text>
           </View>
         )}
