@@ -637,9 +637,10 @@ export function getShuffledWordIds(maxCount?: number): string[] {
 export function getDistractors(
   correctEn: string,
   count: number,
-  excludeId?: string
+  excludeId?: string,
+  wordPool: Word[] = WORDS
 ): string[] {
-  const others = WORDS.filter(
+  const others = wordPool.filter(
     (w) => w.en && w.en !== correctEn && w.id !== excludeId
   );
   const shuffled = shuffle(others);

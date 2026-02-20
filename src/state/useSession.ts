@@ -1,19 +1,22 @@
 import { useCallback, useRef, useState } from 'react';
 import type { SessionState } from '../types/session';
-import {
-  getShuffledWordIds,
-  getDistractors,
-  getWords,
-} from '../data/words';
+import type { Word } from '../types/word';
+import { getShuffledWordIds, getDistractors, getWords } from '../data/words';
 
-const DECK = getWords();
+type StartSessionOptions = {
+  cardCount: number;
+  customWords?: Word[];
+};
+
+type StartSessionInput = number | StartSessionOptions;
 
 function getRemaining(state: SessionState): number {
   return state.deckCount - state.correctSet.size;
 }
 
-function createInitialState(cardCount: number): SessionState {
-  const queue = getShuffledWordIds(cardCount);
+function createInitialStateFromDeck(deck: Word[]): SessionState {
+  const queue = shuffleArray(deck.map((word) => word.id));
+  const isEmpty = queue.length === 0;
   return {
     queue,
     correctSet: new Set(),
@@ -21,7 +24,7 @@ function createInitialState(cardCount: number): SessionState {
     wrongCount: 0,
     deckCount: queue.length,
     startedAt: Date.now(),
-    cleared: false,
+    cleared: isEmpty,
     currentCardId: queue[0] ?? null,
     uiState: 'PROMPT',
   };
@@ -36,11 +39,73 @@ function peekNextCardId(state: SessionState): string | null {
   return null;
 }
 
+function normalizeMaybeText(value: string | undefined): string | undefined {
+  if (value == null) return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeStartSessionInput(input: StartSessionInput): StartSessionOptions {
+  if (typeof input === 'number') {
+    return { cardCount: Math.max(0, Math.floor(input)), customWords: [] };
+  }
+  return {
+    cardCount: Math.max(0, Math.floor(input.cardCount)),
+    customWords: input.customWords ?? [],
+  };
+}
+
+function sanitizeCustomWords(words: Word[]): Word[] {
+  const out: Word[] = [];
+  const seen = new Set<string>();
+  for (const word of words) {
+    const id = normalizeMaybeText(word.id);
+    const pt = normalizeMaybeText(word.pt);
+    if (!id || !pt || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      ...word,
+      id,
+      pt,
+      en: normalizeMaybeText(word.en),
+      pronHintEn: normalizeMaybeText(word.pronHintEn),
+      isCustom: true,
+    });
+  }
+  return out;
+}
+
+function buildSessionDeck(options: StartSessionOptions): Word[] {
+  const defaultDeck = getWords();
+  const byId = new Map(defaultDeck.map((word) => [word.id, word]));
+  const defaultWords = getShuffledWordIds(options.cardCount)
+    .map((id) => byId.get(id))
+    .filter((word): word is Word => word != null);
+  const customWords = sanitizeCustomWords(options.customWords ?? []);
+  return shuffleArray([...defaultWords, ...customWords]);
+}
+
 export function useSession() {
   const [state, setState] = useState<SessionState | null>(null);
   const clearedAtMs = useRef<number | null>(null);
+  const deckRef = useRef<Word[]>([]);
+  const deckByIdRef = useRef<Map<string, Word>>(new Map());
+  const previousOptionsRef = useRef<StartSessionOptions | null>(null);
 
   const remaining = state ? getRemaining(state) : 0;
+  const currentWord = state?.currentCardId
+    ? deckByIdRef.current.get(state.currentCardId) ?? null
+    : null;
+
+  const startFromOptions = useCallback((input: StartSessionInput) => {
+    const options = normalizeStartSessionInput(input);
+    const nextDeck = buildSessionDeck(options);
+    deckRef.current = nextDeck;
+    deckByIdRef.current = new Map(nextDeck.map((word) => [word.id, word]));
+    previousOptionsRef.current = options;
+    clearedAtMs.current = null;
+    setState(createInitialStateFromDeck(nextDeck));
+  }, []);
 
   const advanceToNextCard = useCallback(() => {
     setState((prev) => {
@@ -82,9 +147,33 @@ export function useSession() {
   const swipeRight = useCallback(() => {
     setState((prev) => {
       if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
-      const word = DECK.find((w) => w.id === prev.currentCardId);
-      const correctEn = word?.en ?? '';
-      const distractors = getDistractors(correctEn, 2, prev.currentCardId);
+      const word = deckByIdRef.current.get(prev.currentCardId);
+      const correctEn = normalizeMaybeText(word?.en);
+      if (!correctEn) {
+        const id = prev.currentCardId;
+        const newQueue = prev.queue.filter((x) => x !== id);
+        const newCorrectSet = new Set(prev.correctSet);
+        newCorrectSet.add(id);
+        const cleared = newCorrectSet.size === prev.deckCount;
+        if (cleared) clearedAtMs.current = Date.now();
+        return {
+          ...prev,
+          queue: newQueue,
+          correctSet: newCorrectSet,
+          rightCount: prev.rightCount + 1,
+          uiState: 'FEEDBACK_CORRECT',
+          selectedChoiceIndex: undefined,
+          correctChoiceIndex: undefined,
+          choiceOptions: undefined,
+          cleared,
+        };
+      }
+      const distractors = getDistractors(
+        correctEn,
+        2,
+        prev.currentCardId,
+        deckRef.current
+      );
       const options = shuffleArray([correctEn, ...distractors]);
       const correctChoiceIndex = options.indexOf(correctEn);
       return {
@@ -99,8 +188,8 @@ export function useSession() {
   const chooseOption = useCallback((choiceIndex: number) => {
     setState((prev) => {
       if (!prev || prev.uiState !== 'CHOICES' || prev.currentCardId === null) return prev;
-      const word = DECK.find((w) => w.id === prev.currentCardId);
-      const correctEn = word?.en;
+      const word = deckByIdRef.current.get(prev.currentCardId);
+      const correctEn = normalizeMaybeText(word?.en);
       if (!correctEn) return prev;
 
       const correctIndex = prev.correctChoiceIndex ?? 0;
@@ -125,7 +214,8 @@ export function useSession() {
         };
       }
 
-      const newQueue = [...prev.queue.filter((x) => x !== prev.currentCardId), prev.currentCardId!];
+      const id = prev.currentCardId;
+      const newQueue = [...prev.queue.filter((x) => x !== id), id];
       return {
         ...prev,
         queue: newQueue,
@@ -137,15 +227,18 @@ export function useSession() {
     });
   }, []);
 
-  const startSession = useCallback((cardCount: number) => {
-    clearedAtMs.current = null;
-    setState(createInitialState(cardCount));
-  }, []);
+  const startSession = useCallback((input: StartSessionInput) => {
+    startFromOptions(input);
+  }, [startFromOptions]);
 
   const startNewSession = useCallback((cardCount?: number) => {
-    clearedAtMs.current = null;
-    setState((prev) => createInitialState(cardCount ?? prev?.deckCount ?? 0));
-  }, []);
+    const previous = previousOptionsRef.current;
+    const nextOptions: StartSessionOptions = {
+      cardCount: cardCount ?? previous?.cardCount ?? 0,
+      customWords: previous?.customWords ?? [],
+    };
+    startFromOptions(nextOptions);
+  }, [startFromOptions]);
 
   const stopSession = useCallback(() => {
     clearedAtMs.current = null;
@@ -162,6 +255,7 @@ export function useSession() {
 
   return {
     state,
+    currentWord,
     remaining,
     swipeLeft,
     swipeRight,

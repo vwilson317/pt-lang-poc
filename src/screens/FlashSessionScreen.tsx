@@ -5,18 +5,21 @@ import {
   StyleSheet,
   ImageBackground,
   Pressable,
+  TextInput,
+  ScrollView,
   Alert,
   Platform,
   ToastAndroid,
 } from 'react-native';
-import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import Slider from '@react-native-community/slider';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
 import { CompletionModal } from '../components/CompletionModal';
 import { StopSessionModal } from '../components/StopSessionModal';
+import type { Word } from '../types/word';
 import { useSession } from '../state/useSession';
 import { getWordById, DECK_LENGTH } from '../data/words';
 import {
@@ -26,6 +29,9 @@ import {
   recordWordDontKnow,
   recordWordKnow,
   getSuggestedSpeedAndConsume,
+  getCustomWords,
+  saveCustomWords,
+  clearCustomWords,
 } from '../lib/storage';
 import { playWordAudio, RATE_BASELINE } from '../lib/audio';
 import { theme } from '../theme';
@@ -36,6 +42,11 @@ const MIN_CARDS = 50;
 const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 
+type ParsedCustomEntry = {
+  pt: string;
+  en?: string;
+};
+
 type MissedWordExportItem = {
   id: string;
   pt: string;
@@ -44,10 +55,94 @@ type MissedWordExportItem = {
   misses: number;
 };
 
+function normalizeWordToken(value: string): string {
+  return value.replace(/\s+/g, '').trim();
+}
+
+function normalizeDefinitionToken(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+}
+
+function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
+  const tokens = raw.match(/[^\s,;]+/g) ?? [];
+  const parsed: ParsedCustomEntry[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (token === ':' || token === '=' || token === '-') continue;
+
+    let ptToken = token;
+    let enToken: string | undefined;
+
+    const inlineSep = token.match(/^(.+?)([:=])(.*)$/);
+    if (inlineSep) {
+      ptToken = inlineSep[1];
+      enToken = normalizeDefinitionToken(inlineSep[3]);
+      if (!enToken && tokens[i + 1] && ![':', '=', '-'].includes(tokens[i + 1])) {
+        enToken = normalizeDefinitionToken(tokens[i + 1]);
+        i += 1;
+      }
+    } else if ((tokens[i + 1] === ':' || tokens[i + 1] === '=') && tokens[i + 2]) {
+      enToken = normalizeDefinitionToken(tokens[i + 2]);
+      i += 2;
+    } else if (tokens[i + 1] === '-' && tokens[i + 2]) {
+      enToken = normalizeDefinitionToken(tokens[i + 2]);
+      i += 2;
+    }
+
+    const pt = normalizeWordToken(ptToken);
+    if (!pt) continue;
+
+    const key = pt.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    parsed.push({ pt, en: enToken });
+  }
+
+  return parsed;
+}
+
+function stringifyParsedCustomInput(entries: ParsedCustomEntry[]): string {
+  return entries
+    .map((entry) => (entry.en ? `${entry.pt}:${entry.en}` : entry.pt))
+    .join(' ');
+}
+
 function buildMissedWordsListExport(items: MissedWordExportItem[]): string {
   const ordered = [...items].sort((a, b) => a.pt.localeCompare(b.pt));
   if (ordered.length === 0) return 'No missed words this session.';
   return ordered.map((item) => `${item.pt} - ${item.en}`).join('\n');
+}
+
+async function resolveDefinitionForCustomWord(
+  pt: string,
+  providedDefinition?: string
+): Promise<string | undefined> {
+  if (providedDefinition) return providedDefinition;
+  // TODO: Fetch a Portuguese word definition when missing.
+  void pt;
+  return undefined;
+}
+
+async function readClipboardText(): Promise<string> {
+  if (Platform.OS === 'web') {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        return await navigator.clipboard.readText();
+      }
+    } catch {
+      // fallback to expo-clipboard below
+    }
+  }
+  try {
+    return await Clipboard.getStringAsync();
+  } catch {
+    return '';
+  }
 }
 
 export function FlashSessionScreen() {
@@ -55,6 +150,7 @@ export function FlashSessionScreen() {
   const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
   const {
     state,
+    currentWord,
     remaining,
     swipeLeft,
     swipeRight,
@@ -66,6 +162,13 @@ export function FlashSessionScreen() {
     getClearTimeMs,
   } = useSession();
 
+  const [customWords, setCustomWords] = React.useState<Word[]>([]);
+  const [customInput, setCustomInput] = React.useState('');
+  const [showCustomEditor, setShowCustomEditor] = React.useState(false);
+  const [showCustomTooltip, setShowCustomTooltip] = React.useState(false);
+  const [customFeedback, setCustomFeedback] = React.useState<string | null>(null);
+  const [customError, setCustomError] = React.useState<string | null>(null);
+  const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
   const [modalDismissed, setModalDismissed] = React.useState(false);
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
   const [missedCountsById, setMissedCountsById] = React.useState<Record<string, number>>({});
@@ -76,9 +179,100 @@ export function FlashSessionScreen() {
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
   const lastRecordedWrongIdRef = useRef<string | null>(null);
 
-  const currentWord = state?.currentCardId
-    ? getWordById(state.currentCardId) ?? null
-    : null;
+  useEffect(() => {
+    let cancelled = false;
+    getCustomWords()
+      .then((words) => {
+        if (cancelled) return;
+        setCustomWords(words);
+      })
+      .finally(() => {
+        if (!cancelled) setCustomWordsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (customWords.length === 0 && cardCount < MIN_CARDS) {
+      setCardCount(MIN_CARDS);
+    }
+  }, [customWords.length, cardCount]);
+
+  const handleAddCustomWords = useCallback(async () => {
+    const parsedEntries = parseCustomWordInput(customInput);
+    if (parsedEntries.length === 0) {
+      setCustomFeedback(null);
+      setCustomError('Enter at least one Portuguese word.');
+      return;
+    }
+    const existingPt = new Set(
+      customWords.map((word) => word.pt.trim().toLocaleLowerCase())
+    );
+    const seed = Date.now();
+    const additions: Word[] = [];
+    for (let index = 0; index < parsedEntries.length; index += 1) {
+      const entry = parsedEntries[index];
+      const key = entry.pt.toLocaleLowerCase();
+      if (existingPt.has(key)) continue;
+      existingPt.add(key);
+      const resolvedDefinition = await resolveDefinitionForCustomWord(
+        entry.pt,
+        entry.en
+      );
+      additions.push({
+        id: `custom-${seed}-${index}`,
+        pt: entry.pt,
+        en: resolvedDefinition,
+        isCustom: true,
+      });
+    }
+    if (additions.length === 0) {
+      setCustomFeedback(null);
+      setCustomError('Those words are already in your custom cards.');
+      return;
+    }
+    const nextCustomWords = [...customWords, ...additions];
+    setCustomWords(nextCustomWords);
+    await saveCustomWords(nextCustomWords);
+    setCustomInput('');
+    setCustomError(null);
+    setShowCustomEditor(false);
+    setCustomFeedback(
+      `Added ${additions.length} custom card${additions.length === 1 ? '' : 's'}.`
+    );
+  }, [customInput, customWords]);
+
+  const handleClearCustomCards = useCallback(async () => {
+    await clearCustomWords();
+    setCustomWords([]);
+    setCustomInput('');
+    setCustomError(null);
+    setShowCustomEditor(false);
+    setCustomFeedback('Cleared all custom cards.');
+  }, []);
+
+  const handleToggleCustomEditor = useCallback(() => {
+    const nextOpenState = !showCustomEditor;
+    setShowCustomEditor(nextOpenState);
+    setShowCustomTooltip(false);
+    if (!nextOpenState) return;
+    void (async () => {
+      try {
+        const clipboardText = await readClipboardText();
+        const prefilledInput = stringifyParsedCustomInput(
+          parseCustomWordInput(clipboardText)
+        );
+        if (!prefilledInput) return;
+        setCustomInput(prefilledInput);
+        setCustomFeedback(null);
+        setCustomError(null);
+      } catch {
+        // ignore clipboard failures
+      }
+    })();
+  }, [showCustomEditor]);
 
   const recordSessionMiss = useCallback((wordId: string) => {
     setMissedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
@@ -215,9 +409,9 @@ export function FlashSessionScreen() {
       lastClearedRef.current = false;
       lastRecordedCorrectIdRef.current = null;
       lastRecordedWrongIdRef.current = null;
-      startSession(count);
+      startSession({ cardCount: count, customWords });
     },
-    [startSession]
+    [customWords, startSession]
   );
 
   const handleOpenStopModal = useCallback(() => {
@@ -283,18 +477,24 @@ export function FlashSessionScreen() {
   // Start screen: choose number of cards then begin
   if (!state) {
     const displayCount = Math.round(cardCount);
+    const minCardsAllowed = customWords.length > 0 ? 0 : MIN_CARDS;
+    const totalCardsPlanned = displayCount + customWords.length;
+    const canStart = totalCardsPlanned > 0;
     return (
       <ImageBackground
         source={bgImage}
         style={[styles.screen, { paddingTop: (insets.top || 0) + theme.safeAreaTopOffset }]}
         resizeMode="cover"
       >
-        <View style={styles.startContent}>
+        <ScrollView
+          contentContainerStyle={styles.startContent}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text style={styles.startTitle}>Number of cards</Text>
           <Text style={styles.startCount}>{displayCount}</Text>
           <Slider
             style={styles.slider}
-            minimumValue={MIN_CARDS}
+            minimumValue={minCardsAllowed}
             maximumValue={MAX_CARDS}
             step={1}
             value={cardCount}
@@ -304,13 +504,143 @@ export function FlashSessionScreen() {
             thumbTintColor={theme.brand}
           />
           <View style={styles.startHint}>
-            <Text style={styles.startHintText}>{MIN_CARDS} – {MAX_CARDS} (all)</Text>
+            <Text style={styles.startHintText}>
+              {minCardsAllowed} - {MAX_CARDS} default cards
+            </Text>
+            <Text style={styles.startHintText}>
+              Custom cards loaded: {customWordsLoaded ? customWords.length : '...'}
+            </Text>
+            {customWords.length > 0 && (
+              <Text style={styles.startHintText}>
+                Session total: {totalCardsPlanned}
+              </Text>
+            )}
           </View>
           <Pressable
-            style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+            style={({ pressed }) => [
+              styles.startButton,
+              !canStart && styles.startButtonDisabled,
+              pressed && canStart && styles.startButtonPressed,
+            ]}
             onPress={() => handleStartSession(displayCount)}
+            disabled={!canStart}
           >
             <Text style={styles.startButtonLabel}>Start</Text>
+          </Pressable>
+          {customError != null && (
+            <Text style={styles.customErrorText}>{customError}</Text>
+          )}
+          {customFeedback != null && (
+            <Text style={styles.customFeedbackText}>{customFeedback}</Text>
+          )}
+        </ScrollView>
+        {showCustomEditor && (
+          <View
+            style={[
+              styles.customEditorSheet,
+              { bottom: Math.max(insets.bottom || 0, 10) + 90 },
+            ]}
+          >
+            <View style={styles.customEditorHeader}>
+              <Text style={styles.customEditorTitle}>New Portuguese words</Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.customEditorCloseButton,
+                  pressed && styles.customIconButtonPressed,
+                ]}
+                onPress={() => setShowCustomEditor(false)}
+              >
+                <FontAwesome5 name="times" size={14} color={theme.textPrimary} solid />
+              </Pressable>
+            </View>
+            <Text style={styles.customEditorHint}>
+              Portuguese only. Use spaces, commas, or new lines to separate words.
+            </Text>
+            <TextInput
+              style={styles.customInput}
+              value={customInput}
+              onChangeText={(value) => {
+                setCustomInput(value);
+                setCustomFeedback(null);
+                setCustomError(null);
+              }}
+              multiline
+              placeholder="ex: casa carro amigo"
+              placeholderTextColor={theme.textMuted}
+              textAlignVertical="top"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.customActionRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.customSaveButton,
+                  pressed && styles.customSaveButtonPressed,
+                ]}
+                onPress={() => {
+                  void handleAddCustomWords();
+                }}
+              >
+                <Text style={styles.customSaveButtonLabel}>Create cards</Text>
+              </Pressable>
+              {customWords.length > 0 && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.customClearButton,
+                    pressed && styles.customClearButtonPressed,
+                  ]}
+                  onPress={() => {
+                    void handleClearCustomCards();
+                  }}
+                >
+                  <Text style={styles.customClearButtonLabel}>Clear all</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+        {showCustomTooltip && (
+          <View
+            style={[
+              styles.customTooltip,
+              { bottom: Math.max(insets.bottom || 0, 10) + 140 },
+            ]}
+          >
+            <Text style={styles.customTooltipText}>
+              Add Portuguese words separated by spaces. Optional definition format:
+              casa:house, casa=house, or casa - house.
+            </Text>
+          </View>
+        )}
+        <View
+          style={[
+            styles.floatingButtons,
+            { bottom: Math.max(insets.bottom || 0, 10) + 16 },
+          ]}
+        >
+          <Pressable
+            style={({ pressed }) => [
+              styles.customIconButton,
+              styles.customInfoButton,
+              pressed && styles.customIconButtonPressed,
+            ]}
+            onPress={() => {
+              setShowCustomTooltip((prev) => !prev);
+            }}
+          >
+            <FontAwesome5 name="info-circle" size={16} color={theme.textPrimary} solid />
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.customIconButton,
+              styles.customAddButton,
+              pressed && styles.customIconButtonPressed,
+            ]}
+            onPress={() => {
+              handleToggleCustomEditor();
+            }}
+          >
+            <FontAwesome5 name="plus" size={18} color={theme.textPrimary} solid />
           </Pressable>
         </View>
         {Platform.OS === 'web' && toastMessage && (
@@ -400,8 +730,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   startContent: {
-    flex: 1,
-    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingBottom: 132,
     paddingHorizontal: 32,
   },
   startTitle: {
@@ -423,12 +753,153 @@ const styles = StyleSheet.create({
     height: 48,
   },
   startHint: {
-    marginBottom: 32,
+    marginBottom: 20,
+    gap: 4,
   },
   startHintText: {
     fontSize: 14,
     color: theme.textMuted,
     textAlign: 'center',
+  },
+  floatingButtons: {
+    position: 'absolute',
+    right: 18,
+    flexDirection: 'column',
+    gap: 10,
+    alignItems: 'flex-end',
+  },
+  customIconButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    ...theme.cardShadow,
+  },
+  customInfoButton: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  customAddButton: {
+    backgroundColor: theme.brand,
+  },
+  customIconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.97 }],
+  },
+  customTooltip: {
+    position: 'absolute',
+    right: 18,
+    maxWidth: 270,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(5,11,28,0.96)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  customTooltipText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: theme.textPrimary,
+  },
+  customEditorSheet: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(9,14,34,0.97)',
+    padding: 14,
+    gap: 10,
+  },
+  customEditorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  customEditorTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  customEditorCloseButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  customEditorHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: theme.textMuted,
+  },
+  customInput: {
+    minHeight: 100,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(3,7,20,0.8)',
+    color: theme.textPrimary,
+    padding: 10,
+    fontSize: 14,
+  },
+  customActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  customSaveButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#7C4DFF',
+  },
+  customSaveButtonPressed: {
+    opacity: 0.92,
+  },
+  customSaveButtonLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  customClearButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  customClearButtonPressed: {
+    opacity: 0.92,
+  },
+  customClearButtonLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  customErrorText: {
+    fontSize: 13,
+    color: '#FF7B91',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  customFeedbackText: {
+    fontSize: 13,
+    color: '#7CFFB5',
+    textAlign: 'center',
+    marginTop: 10,
   },
   startButton: {
     backgroundColor: theme.brand,
@@ -439,6 +910,9 @@ const styles = StyleSheet.create({
   },
   startButtonPressed: {
     opacity: 0.9,
+  },
+  startButtonDisabled: {
+    opacity: 0.45,
   },
   startButtonLabel: {
     fontSize: theme.buttonLabelSize,

@@ -4,4 +4,5 @@ export type Word = {
   en?: string;
   audioUrl?: string;
   pronHintEn?: string;
+  isCustom?: boolean;
 };

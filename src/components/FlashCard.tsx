@@ -19,6 +19,11 @@ const SWIPE_THRESHOLD = 120;
 const springConfig = { damping: 18, stiffness: 120 };
 /** Time to show the "Don't know" reveal (word + translation) before advancing. */
 const REVEAL_DONT_KNOW_MS = 1800;
+const customCardSurfaceColors = [
+  'rgba(255,183,120,0.28)',
+  'rgba(255,96,163,0.16)',
+] as const;
+const customAudioButtonColors = ['#FF8E53', '#FF5D9B'] as const;
 
 type FlashCardProps = {
   word: Word | null;
@@ -153,98 +158,98 @@ export function FlashCard({
 
   const showChoices = uiState === 'CHOICES' || uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
   const isFeedback = uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
+  const isCustomWord = Boolean(word.isCustom);
 
   return (
     <GestureDetector gesture={panGesture}>
-      <View style={styles.gestureSurface}>
-        <Animated.View style={[styles.card, animatedCardStyle]}>
-          <LinearGradient
-            colors={[...cardSurfaceColors]}
-            style={styles.cardGradient}
-          >
-            <View style={styles.inner}>
-              <Text style={styles.pt}>{word.pt}</Text>
-              {word.pronHintEn != null && (
-                <Text style={styles.pronHint}>{word.pronHintEn}</Text>
-              )}
+      <Animated.View
+        style={[styles.card, isCustomWord && styles.customCard, animatedCardStyle]}
+      >
+        <LinearGradient
+          colors={[...(isCustomWord ? customCardSurfaceColors : cardSurfaceColors)]}
+          style={styles.cardGradient}
+        >
+          <View style={styles.inner}>
+            {isCustomWord && (
+              <View style={styles.customBadge}>
+                <Text style={styles.customBadgeText}>Custom</Text>
+              </View>
+            )}
+            <Text style={styles.pt}>{word.pt}</Text>
+            {word.pronHintEn != null && (
+              <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+            )}
 
-              {uiState === 'PROMPT' && (
-                <Pressable
-                  style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
-                  onPress={handlePress}
-                  onLongPress={handleLongPress}
-                  disabled={disabled}
-                >
-                  <LinearGradient
-                    colors={[...audioButtonColors]}
-                    style={StyleSheet.absoluteFill}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  />
-                  <View style={styles.audioButtonContent}>
-                    {speedIndicator != null ? (
-                      <Text style={styles.speedLabel}>{speedIndicator}x</Text>
-                    ) : (
-                      <>
-                        <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
-                        <Text style={styles.audioLabel}>Tap to play</Text>
-                      </>
-                    )}
-                  </View>
-                </Pressable>
-              )}
-
-              {uiState === 'REVEAL_DONT_KNOW' && (
-                <View style={styles.reveal}>
-                  {word.en != null && (
-                    <Text style={styles.en}>{word.en}</Text>
+            {uiState === 'PROMPT' && (
+              <Pressable
+                style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
+                onPress={handlePress}
+                onLongPress={handleLongPress}
+                disabled={disabled}
+              >
+                <LinearGradient
+                  colors={[...(isCustomWord ? customAudioButtonColors : audioButtonColors)]}
+                  style={StyleSheet.absoluteFill}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                />
+                <View style={styles.audioButtonContent}>
+                  {speedIndicator != null ? (
+                    <Text style={styles.speedLabel}>{speedIndicator}x</Text>
+                  ) : (
+                    <>
+                      <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
+                      <Text style={styles.audioLabel}>Tap to play</Text>
+                    </>
                   )}
-                  {word.pronHintEn != null && (
-                    <Text style={styles.pronHint}>{word.pronHintEn}</Text>
-                  )}
-                  <Text style={styles.autoAdvance}>Next in a moment…</Text>
                 </View>
-              )}
+              </Pressable>
+            )}
 
-              {showChoices && (
-                <View style={styles.choices}>
-                  {choiceOptions.map((opt, i) => {
-                    const isCorrect = i === correctChoiceIndex;
-                    const isSelected = i === selectedChoiceIndex;
-                    const optionStyle = [
-                      styles.option,
-                      isFeedback && isCorrect && styles.optionCorrect,
-                      isFeedback && isSelected && !isCorrect && styles.optionWrong,
-                    ];
-                    return (
-                      <TouchableOpacity
-                        key={i}
-                        style={optionStyle}
-                        onPress={() => !isFeedback && onChooseOption(i)}
-                        disabled={disabled || isFeedback}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={styles.optionText}>{opt}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
-          </LinearGradient>
-        </Animated.View>
-      </View>
+            {uiState === 'REVEAL_DONT_KNOW' && (
+              <View style={styles.reveal}>
+                {word.en != null && (
+                  <Text style={styles.en}>{word.en}</Text>
+                )}
+                {word.pronHintEn != null && (
+                  <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+                )}
+                <Text style={styles.autoAdvance}>Next in a moment…</Text>
+              </View>
+            )}
+
+            {showChoices && (
+              <View style={styles.choices}>
+                {choiceOptions.map((opt, i) => {
+                  const isCorrect = i === correctChoiceIndex;
+                  const isSelected = i === selectedChoiceIndex;
+                  const optionStyle = [
+                    styles.option,
+                    isFeedback && isCorrect && styles.optionCorrect,
+                    isFeedback && isSelected && !isCorrect && styles.optionWrong,
+                  ];
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      style={optionStyle}
+                      onPress={() => !isFeedback && onChooseOption(i)}
+                      disabled={disabled || isFeedback}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.optionText}>{opt}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </LinearGradient>
+      </Animated.View>
     </GestureDetector>
   );
 }
 
 const styles = StyleSheet.create({
-  gestureSurface: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   card: {
     width: '88%' as const,
     maxWidth: 360,
@@ -256,6 +261,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...theme.cardShadow,
   },
+  customCard: {
+    borderColor: '#FFB26B',
+    borderWidth: 2,
+  },
   cardGradient: {
     flex: 1,
     padding: 24,
@@ -263,6 +272,22 @@ const styles = StyleSheet.create({
   },
   inner: {
     alignItems: 'center',
+  },
+  customBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,189,105,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,214,149,0.85)',
+  },
+  customBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    color: '#FFE1B2',
+    textTransform: 'uppercase',
   },
   placeholder: {
     padding: 48,
