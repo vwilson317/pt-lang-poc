@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
@@ -152,6 +153,25 @@ export function FlashSessionScreen() {
     setShowCustomEditor(false);
     setCustomFeedback('Cleared all custom cards.');
   }, []);
+
+  const handleToggleCustomEditor = useCallback(() => {
+    const nextOpenState = !showCustomEditor;
+    setShowCustomEditor(nextOpenState);
+    setShowCustomTooltip(false);
+    if (!nextOpenState) return;
+    void (async () => {
+      try {
+        const clipboardText = await Clipboard.getStringAsync();
+        const prefilledInput = parseCustomWordInput(clipboardText).join(' ');
+        if (!prefilledInput) return;
+        setCustomInput(prefilledInput);
+        setCustomFeedback(null);
+        setCustomError(null);
+      } catch {
+        // ignore clipboard failures
+      }
+    })();
+  }, [showCustomEditor]);
 
   const handlePlayAudio = useCallback((rate: number) => {
     if (!currentWord) return;
@@ -374,7 +394,8 @@ export function FlashSessionScreen() {
             ]}
           >
             <Text style={styles.customTooltipText}>
-              Add Portuguese words only. Spaces are separators between words.
+              Add Portuguese words only. Spaces are separators. Plus button also
+              pre-fills from your clipboard.
             </Text>
           </View>
         )}
@@ -403,8 +424,7 @@ export function FlashSessionScreen() {
               pressed && styles.customIconButtonPressed,
             ]}
             onPress={() => {
-              setShowCustomEditor((prev) => !prev);
-              setShowCustomTooltip(false);
+              handleToggleCustomEditor();
             }}
           >
             <FontAwesome5 name="plus" size={18} color={theme.textPrimary} solid />
