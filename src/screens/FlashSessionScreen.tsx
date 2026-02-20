@@ -9,6 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
@@ -36,36 +37,22 @@ const MIN_CARDS = 50;
 const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 
-type ParsedCustomWord = {
-  pt: string;
-  en?: string;
-};
-
-function normalizeCustomText(value: string | undefined): string | undefined {
-  if (value == null) return undefined;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
+function normalizeWordToken(value: string): string {
+  return value.replace(/\s+/g, '').trim();
 }
 
-function parseCustomWordInput(raw: string): ParsedCustomWord[] {
+function parseCustomWordInput(raw: string): string[] {
   const entries = raw
-    .split(/[\n,;]+/)
-    .map((entry) => entry.trim())
+    .split(/[\s,;]+/)
+    .map(normalizeWordToken)
     .filter(Boolean);
-  const parsed: ParsedCustomWord[] = [];
+  const parsed: string[] = [];
   const seen = new Set<string>();
-  for (const entry of entries) {
-    const pairWithEqualsOrColon = entry.match(/^(.+?)\s*(?:=|:)\s*(.+)$/);
-    const pairWithDashedSeparator = entry.match(/^(.+?)\s+-\s+(.+)$/);
-    const lhs = pairWithEqualsOrColon?.[1] ?? pairWithDashedSeparator?.[1];
-    const rhs = pairWithEqualsOrColon?.[2] ?? pairWithDashedSeparator?.[2];
-    const pt = normalizeCustomText(lhs ?? entry);
-    const en = normalizeCustomText(rhs);
-    if (!pt) continue;
-    const key = pt.toLocaleLowerCase();
+  for (const token of entries) {
+    const key = token.toLocaleLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    parsed.push({ pt, en });
+    parsed.push(token);
   }
   return parsed;
 }
@@ -89,6 +76,7 @@ export function FlashSessionScreen() {
   const [customWords, setCustomWords] = React.useState<Word[]>([]);
   const [customInput, setCustomInput] = React.useState('');
   const [showCustomEditor, setShowCustomEditor] = React.useState(false);
+  const [showCustomTooltip, setShowCustomTooltip] = React.useState(false);
   const [customFeedback, setCustomFeedback] = React.useState<string | null>(null);
   const [customError, setCustomError] = React.useState<string | null>(null);
   const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
@@ -130,14 +118,13 @@ export function FlashSessionScreen() {
     );
     const seed = Date.now();
     const additions: Word[] = [];
-    parsedWords.forEach((word, index) => {
-      const key = word.pt.toLocaleLowerCase();
+    parsedWords.forEach((pt, index) => {
+      const key = pt.toLocaleLowerCase();
       if (existingPt.has(key)) return;
       existingPt.add(key);
       additions.push({
         id: `custom-${seed}-${index}`,
-        pt: word.pt,
-        en: word.en,
+        pt,
         isCustom: true,
       });
     });
@@ -151,6 +138,7 @@ export function FlashSessionScreen() {
     await saveCustomWords(nextCustomWords);
     setCustomInput('');
     setCustomError(null);
+    setShowCustomEditor(false);
     setCustomFeedback(
       `Added ${additions.length} custom card${additions.length === 1 ? '' : 's'}.`
     );
@@ -161,6 +149,7 @@ export function FlashSessionScreen() {
     setCustomWords([]);
     setCustomInput('');
     setCustomError(null);
+    setShowCustomEditor(false);
     setCustomFeedback('Cleared all custom cards.');
   }, []);
 
@@ -292,77 +281,6 @@ export function FlashSessionScreen() {
               </Text>
             )}
           </View>
-          <View style={styles.customSection}>
-            <View style={styles.customHeader}>
-              <Text style={styles.customTitle}>Custom Portuguese cards</Text>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.customToggleButton,
-                  pressed && styles.customToggleButtonPressed,
-                ]}
-                onPress={() => setShowCustomEditor((prev) => !prev)}
-              >
-                <Text style={styles.customToggleButtonLabel}>
-                  {showCustomEditor ? 'Hide' : 'Add words'}
-                </Text>
-              </Pressable>
-            </View>
-            <Text style={styles.customBodyText}>
-              Add one word or many words (comma/new line). Optional translation with
-              {' '}
-              <Text style={styles.customBodyStrong}>casa = house</Text>
-            </Text>
-            {showCustomEditor && (
-              <View style={styles.customEditor}>
-                <TextInput
-                  style={styles.customInput}
-                  value={customInput}
-                  onChangeText={(value) => {
-                    setCustomInput(value);
-                    setCustomFeedback(null);
-                    setCustomError(null);
-                  }}
-                  multiline
-                  placeholder={'ex: saudade\nobrigado = thanks\ncidade, praia'}
-                  placeholderTextColor={theme.textMuted}
-                  textAlignVertical="top"
-                  autoCapitalize="none"
-                />
-                <View style={styles.customActionRow}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.customSaveButton,
-                      pressed && styles.customSaveButtonPressed,
-                    ]}
-                    onPress={() => {
-                      void handleAddCustomWords();
-                    }}
-                  >
-                    <Text style={styles.customSaveButtonLabel}>Create cards</Text>
-                  </Pressable>
-                  {customWords.length > 0 && (
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.customClearButton,
-                        pressed && styles.customClearButtonPressed,
-                      ]}
-                      onPress={() => {
-                        void handleClearCustomCards();
-                      }}
-                    >
-                      <Text style={styles.customClearButtonLabel}>Clear all</Text>
-                    </Pressable>
-                  )}
-                </View>
-                {customError != null && (
-                  <Text style={styles.customErrorText}>{customError}</Text>
-                )}
-                {customFeedback != null && (
-                  <Text style={styles.customFeedbackText}>{customFeedback}</Text>
-                )}
-              </View>
-            )}
-          </View>
           <Pressable
             style={({ pressed }) => [
               styles.startButton,
@@ -376,7 +294,122 @@ export function FlashSessionScreen() {
           >
             <Text style={styles.startButtonLabel}>Start</Text>
           </Pressable>
+          {customError != null && (
+            <Text style={styles.customErrorText}>{customError}</Text>
+          )}
+          {customFeedback != null && (
+            <Text style={styles.customFeedbackText}>{customFeedback}</Text>
+          )}
         </ScrollView>
+        {showCustomEditor && (
+          <View
+            style={[
+              styles.customEditorSheet,
+              { bottom: Math.max(insets.bottom || 0, 10) + 90 },
+            ]}
+          >
+            <View style={styles.customEditorHeader}>
+              <Text style={styles.customEditorTitle}>New Portuguese words</Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.customEditorCloseButton,
+                  pressed && styles.customIconButtonPressed,
+                ]}
+                onPress={() => setShowCustomEditor(false)}
+              >
+                <FontAwesome5 name="times" size={14} color={theme.textPrimary} solid />
+              </Pressable>
+            </View>
+            <Text style={styles.customEditorHint}>
+              Portuguese only. Use spaces, commas, or new lines to separate words.
+            </Text>
+            <TextInput
+              style={styles.customInput}
+              value={customInput}
+              onChangeText={(value) => {
+                setCustomInput(value);
+                setCustomFeedback(null);
+                setCustomError(null);
+              }}
+              multiline
+              placeholder="ex: casa carro amigo"
+              placeholderTextColor={theme.textMuted}
+              textAlignVertical="top"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.customActionRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.customSaveButton,
+                  pressed && styles.customSaveButtonPressed,
+                ]}
+                onPress={() => {
+                  void handleAddCustomWords();
+                }}
+              >
+                <Text style={styles.customSaveButtonLabel}>Create cards</Text>
+              </Pressable>
+              {customWords.length > 0 && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.customClearButton,
+                    pressed && styles.customClearButtonPressed,
+                  ]}
+                  onPress={() => {
+                    void handleClearCustomCards();
+                  }}
+                >
+                  <Text style={styles.customClearButtonLabel}>Clear all</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+        {showCustomTooltip && (
+          <View
+            style={[
+              styles.customTooltip,
+              { bottom: Math.max(insets.bottom || 0, 10) + 140 },
+            ]}
+          >
+            <Text style={styles.customTooltipText}>
+              Add Portuguese words only. Spaces are separators between words.
+            </Text>
+          </View>
+        )}
+        <View
+          style={[
+            styles.floatingButtons,
+            { bottom: Math.max(insets.bottom || 0, 10) + 16 },
+          ]}
+        >
+          <Pressable
+            style={({ pressed }) => [
+              styles.customIconButton,
+              styles.customInfoButton,
+              pressed && styles.customIconButtonPressed,
+            ]}
+            onPress={() => {
+              setShowCustomTooltip((prev) => !prev);
+            }}
+          >
+            <FontAwesome5 name="info-circle" size={16} color={theme.textPrimary} solid />
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.customIconButton,
+              styles.customAddButton,
+              pressed && styles.customIconButtonPressed,
+            ]}
+            onPress={() => {
+              setShowCustomEditor((prev) => !prev);
+              setShowCustomTooltip(false);
+            }}
+          >
+            <FontAwesome5 name="plus" size={18} color={theme.textPrimary} solid />
+          </Pressable>
+        </View>
       </ImageBackground>
     );
   }
@@ -432,7 +465,7 @@ const styles = StyleSheet.create({
   },
   startContent: {
     paddingVertical: 24,
-    paddingBottom: 40,
+    paddingBottom: 132,
     paddingHorizontal: 32,
   },
   startTitle: {
@@ -462,55 +495,85 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
     textAlign: 'center',
   },
-  customSection: {
-    borderRadius: 16,
+  floatingButtons: {
+    position: 'absolute',
+    right: 18,
+    flexDirection: 'column',
+    gap: 10,
+    alignItems: 'flex-end',
+  },
+  customIconButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    ...theme.cardShadow,
+  },
+  customInfoButton: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  customAddButton: {
+    backgroundColor: theme.brand,
+  },
+  customIconButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.97 }],
+  },
+  customTooltip: {
+    position: 'absolute',
+    right: 18,
+    maxWidth: 270,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(5,11,28,0.96)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  customTooltipText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: theme.textPrimary,
+  },
+  customEditorSheet: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
-    backgroundColor: 'rgba(10,14,32,0.55)',
+    backgroundColor: 'rgba(9,14,34,0.97)',
     padding: 14,
-    marginBottom: 20,
+    gap: 10,
   },
-  customHeader: {
+  customEditorHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 10,
+    gap: 8,
   },
-  customTitle: {
+  customEditorTitle: {
     flex: 1,
     fontSize: 16,
     fontWeight: '700',
     color: theme.textPrimary,
   },
-  customToggleButton: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(106,92,255,0.24)',
+  customEditorCloseButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(106,92,255,0.7)',
+    borderColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  customToggleButtonPressed: {
-    opacity: 0.9,
-  },
-  customToggleButtonLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  customBodyText: {
-    fontSize: 13,
-    lineHeight: 18,
+  customEditorHint: {
+    fontSize: 12,
+    lineHeight: 16,
     color: theme.textMuted,
-  },
-  customBodyStrong: {
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  customEditor: {
-    marginTop: 12,
-    gap: 10,
   },
   customInput: {
     minHeight: 100,
@@ -563,10 +626,14 @@ const styles = StyleSheet.create({
   customErrorText: {
     fontSize: 13,
     color: '#FF7B91',
+    textAlign: 'center',
+    marginTop: 10,
   },
   customFeedbackText: {
     fontSize: 13,
     color: '#7CFFB5',
+    textAlign: 'center',
+    marginTop: 10,
   },
   startButton: {
     backgroundColor: theme.brand,
