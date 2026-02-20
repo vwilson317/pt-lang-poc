@@ -19,6 +19,11 @@ const SWIPE_THRESHOLD = 120;
 const springConfig = { damping: 18, stiffness: 120 };
 /** Time to show the "Don't know" reveal (word + translation) before advancing. */
 const REVEAL_DONT_KNOW_MS = 1800;
+const customCardSurfaceColors = [
+  'rgba(255,183,120,0.28)',
+  'rgba(255,96,163,0.16)',
+] as const;
+const customAudioButtonColors = ['#FF8E53', '#FF5D9B'] as const;
 
 type FlashCardProps = {
   word: Word | null;
@@ -153,15 +158,23 @@ export function FlashCard({
 
   const showChoices = uiState === 'CHOICES' || uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
   const isFeedback = uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
+  const isCustomWord = Boolean(word.isCustom);
 
   return (
     <GestureDetector gesture={panGesture}>
-      <Animated.View style={[styles.card, animatedCardStyle]}>
+      <Animated.View
+        style={[styles.card, isCustomWord && styles.customCard, animatedCardStyle]}
+      >
         <LinearGradient
-          colors={[...cardSurfaceColors]}
+          colors={[...(isCustomWord ? customCardSurfaceColors : cardSurfaceColors)]}
           style={styles.cardGradient}
         >
           <View style={styles.inner}>
+            {isCustomWord && (
+              <View style={styles.customBadge}>
+                <Text style={styles.customBadgeText}>Custom</Text>
+              </View>
+            )}
             <Text style={styles.pt}>{word.pt}</Text>
             {word.pronHintEn != null && (
               <Text style={styles.pronHint}>{word.pronHintEn}</Text>
@@ -175,7 +188,7 @@ export function FlashCard({
                 disabled={disabled}
               >
                 <LinearGradient
-                  colors={[...audioButtonColors]}
+                  colors={[...(isCustomWord ? customAudioButtonColors : audioButtonColors)]}
                   style={StyleSheet.absoluteFill}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
@@ -248,6 +261,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...theme.cardShadow,
   },
+  customCard: {
+    borderColor: '#FFB26B',
+    borderWidth: 2,
+  },
   cardGradient: {
     flex: 1,
     padding: 24,
@@ -255,6 +272,22 @@ const styles = StyleSheet.create({
   },
   inner: {
     alignItems: 'center',
+  },
+  customBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,189,105,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,214,149,0.85)',
+  },
+  customBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    color: '#FFE1B2',
+    textTransform: 'uppercase',
   },
   placeholder: {
     padding: 48,

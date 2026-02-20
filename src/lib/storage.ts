@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Word } from '../types/word';
 
 const KEY_BEST_CLEAR_MS = 'bestClearMs';
 const KEY_RUNS_COUNT = 'runsCount';
+const KEY_CUSTOM_WORDS = 'customWords';
 
 export async function getBestClearMs(): Promise<number | null> {
   const raw = await AsyncStorage.getItem(KEY_BEST_CLEAR_MS);
@@ -26,6 +28,57 @@ export async function incrementRunsCount(): Promise<number> {
   const next = count + 1;
   await AsyncStorage.setItem(KEY_RUNS_COUNT, String(next));
   return next;
+}
+
+function normalizeMaybeString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function toCustomWord(value: unknown): Word | null {
+  if (value == null || typeof value !== 'object') return null;
+  const maybe = value as Partial<Word>;
+  const id = normalizeMaybeString(maybe.id);
+  const pt = normalizeMaybeString(maybe.pt);
+  if (!id || !pt) return null;
+  return {
+    id,
+    pt,
+    en: normalizeMaybeString(maybe.en),
+    pronHintEn: normalizeMaybeString(maybe.pronHintEn),
+    isCustom: true,
+  };
+}
+
+export async function getCustomWords(): Promise<Word[]> {
+  const raw = await AsyncStorage.getItem(KEY_CUSTOM_WORDS);
+  if (raw == null) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(toCustomWord)
+      .filter((word): word is Word => word != null);
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCustomWords(words: Word[]): Promise<void> {
+  const payload = words
+    .filter((word) => word.isCustom && word.pt.trim())
+    .map((word) => ({
+      id: word.id,
+      pt: word.pt.trim(),
+      en: normalizeMaybeString(word.en),
+      pronHintEn: normalizeMaybeString(word.pronHintEn),
+    }));
+  await AsyncStorage.setItem(KEY_CUSTOM_WORDS, JSON.stringify(payload));
+}
+
+export async function clearCustomWords(): Promise<void> {
+  await AsyncStorage.removeItem(KEY_CUSTOM_WORDS);
 }
 
 // --- Per-word audio adaptation (optional, local only) ---
