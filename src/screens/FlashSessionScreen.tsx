@@ -1,10 +1,22 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ImageBackground, Pressable } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ImageBackground,
+  Pressable,
+  Alert,
+  Platform,
+  ToastAndroid,
+} from 'react-native';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import Slider from '@react-native-community/slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
 import { CompletionModal } from '../components/CompletionModal';
+import { StopSessionModal } from '../components/StopSessionModal';
 import { useSession } from '../state/useSession';
 import { getWordById, DECK_LENGTH } from '../data/words';
 import {
@@ -24,6 +36,20 @@ const MIN_CARDS = 50;
 const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 
+type MissedWordExportItem = {
+  id: string;
+  pt: string;
+  en: string;
+  pronHintEn?: string;
+  misses: number;
+};
+
+function buildMissedWordsListExport(items: MissedWordExportItem[]): string {
+  const ordered = [...items].sort((a, b) => a.pt.localeCompare(b.pt));
+  if (ordered.length === 0) return 'No missed words this session.';
+  return ordered.map((item) => `${item.pt} - ${item.en}`).join('\n');
+}
+
 export function FlashSessionScreen() {
   const insets = useSafeAreaInsets();
   const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
@@ -36,17 +62,27 @@ export function FlashSessionScreen() {
     advanceToNextCard,
     startSession,
     startNewSession,
+    stopSession,
     getClearTimeMs,
   } = useSession();
 
   const [modalDismissed, setModalDismissed] = React.useState(false);
+  const [stopModalVisible, setStopModalVisible] = React.useState(false);
+  const [missedCountsById, setMissedCountsById] = React.useState<Record<string, number>>({});
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null);
   const lastClearedRef = useRef(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userHasEnabledAudioRef = useRef(false);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
+  const lastRecordedWrongIdRef = useRef<string | null>(null);
 
   const currentWord = state?.currentCardId
     ? getWordById(state.currentCardId) ?? null
     : null;
+
+  const recordSessionMiss = useCallback((wordId: string) => {
+    setMissedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
+  }, []);
 
   const handlePlayAudio = useCallback((rate: number) => {
     if (!currentWord) return;
@@ -55,9 +91,12 @@ export function FlashSessionScreen() {
   }, [currentWord]);
 
   const handleSwipeLeft = useCallback(() => {
-    if (state?.currentCardId) recordWordDontKnow(state.currentCardId);
+    if (state?.currentCardId) {
+      recordWordDontKnow(state.currentCardId);
+      recordSessionMiss(state.currentCardId);
+    }
     swipeLeft();
-  }, [swipeLeft, state?.currentCardId]);
+  }, [recordSessionMiss, swipeLeft, state?.currentCardId]);
 
   // Record "Know" once per card when feedback is correct
   useEffect(() => {
@@ -75,6 +114,24 @@ export function FlashSessionScreen() {
   useEffect(() => {
     if (state?.uiState === 'PROMPT') {
       lastRecordedCorrectIdRef.current = null;
+    }
+  }, [state?.uiState, state?.currentCardId]);
+
+  // Record a miss once per card when answer feedback is wrong.
+  useEffect(() => {
+    if (
+      state?.uiState === 'FEEDBACK_WRONG' &&
+      state?.currentCardId &&
+      state.currentCardId !== lastRecordedWrongIdRef.current
+    ) {
+      lastRecordedWrongIdRef.current = state.currentCardId;
+      recordSessionMiss(state.currentCardId);
+    }
+  }, [recordSessionMiss, state?.uiState, state?.currentCardId]);
+
+  useEffect(() => {
+    if (state?.uiState === 'PROMPT') {
+      lastRecordedWrongIdRef.current = null;
     }
   }, [state?.uiState, state?.currentCardId]);
 
@@ -117,7 +174,11 @@ export function FlashSessionScreen() {
 
   const handleRunAgain = useCallback(() => {
     setModalDismissed(false);
+    setStopModalVisible(false);
+    setMissedCountsById({});
     lastClearedRef.current = false;
+    lastRecordedCorrectIdRef.current = null;
+    lastRecordedWrongIdRef.current = null;
     startNewSession();
   }, [startNewSession]);
 
@@ -125,8 +186,93 @@ export function FlashSessionScreen() {
     setModalDismissed(true);
   }, []);
 
-  const showModal = state?.cleared && !modalDismissed;
+  const showModal = Boolean(state?.cleared && !modalDismissed);
   const [bestTimeMs, setBestTimeMs] = React.useState<number | null>(null);
+
+  const missedWordExportItems = React.useMemo(() => {
+    return Object.entries(missedCountsById)
+      .map(([id, misses]) => {
+        const word = getWordById(id);
+        if (!word?.en) return null;
+        return {
+          id,
+          pt: word.pt,
+          en: word.en,
+          pronHintEn: word.pronHintEn,
+          misses,
+        } as MissedWordExportItem;
+      })
+      .filter((item): item is MissedWordExportItem => item != null)
+      .sort((a, b) => b.misses - a.misses || a.pt.localeCompare(b.pt));
+  }, [missedCountsById]);
+  const uniqueMissCount = missedWordExportItems.length;
+
+  const handleStartSession = useCallback(
+    (count: number) => {
+      setModalDismissed(false);
+      setStopModalVisible(false);
+      setMissedCountsById({});
+      lastClearedRef.current = false;
+      lastRecordedCorrectIdRef.current = null;
+      lastRecordedWrongIdRef.current = null;
+      startSession(count);
+    },
+    [startSession]
+  );
+
+  const handleOpenStopModal = useCallback(() => {
+    setStopModalVisible(true);
+  }, []);
+
+  const handleResumeSession = useCallback(() => {
+    setStopModalVisible(false);
+  }, []);
+
+  const toastBottomOffset = (insets.bottom || 0) + (state && !state.cleared && !stopModalVisible ? 86 : 16);
+
+  const showNativeCopyToast = useCallback((message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+      return;
+    }
+    if (Platform.OS === 'web') {
+      setToastMessage(message);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setToastMessage(null);
+      }, 2200);
+      return;
+    }
+    Alert.alert('Copied', message);
+  }, []);
+
+  const handleStopAndCopy = useCallback(async () => {
+    const exportText = buildMissedWordsListExport(missedWordExportItems);
+    try {
+      await Clipboard.setStringAsync(exportText);
+      const toastMessage =
+        uniqueMissCount > 0
+          ? `Copied ${uniqueMissCount} missed words to clipboard`
+          : 'Copied to clipboard';
+      showNativeCopyToast(toastMessage);
+    } catch {
+      Alert.alert('Copy failed', 'Could not copy the export to your clipboard.');
+    } finally {
+      setStopModalVisible(false);
+      setModalDismissed(false);
+      setMissedCountsById({});
+      lastClearedRef.current = false;
+      lastRecordedCorrectIdRef.current = null;
+      lastRecordedWrongIdRef.current = null;
+      stopSession();
+    }
+  }, [missedWordExportItems, showNativeCopyToast, stopSession, uniqueMissCount]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (state?.cleared) {
@@ -162,11 +308,18 @@ export function FlashSessionScreen() {
           </View>
           <Pressable
             style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
-            onPress={() => startSession(displayCount)}
+            onPress={() => handleStartSession(displayCount)}
           >
             <Text style={styles.startButtonLabel}>Start</Text>
           </Pressable>
         </View>
+        {Platform.OS === 'web' && toastMessage && (
+          <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
+            <View style={styles.webToast}>
+              <Text style={styles.webToastText}>{toastMessage}</Text>
+            </View>
+          </View>
+        )}
       </ImageBackground>
     );
   }
@@ -182,7 +335,7 @@ export function FlashSessionScreen() {
         wrongCount={state.wrongCount}
         remaining={remaining}
         startedAt={state.startedAt}
-        frozen={state.cleared}
+        frozen={state.cleared || stopModalVisible}
       />
       <View style={styles.content}>
         <FlashCard
@@ -196,15 +349,41 @@ export function FlashSessionScreen() {
           onChooseOption={chooseOption}
           onAdvance={advanceToNextCard}
           onPlayAudio={handlePlayAudio}
-          disabled={state.cleared}
+          disabled={state.cleared || stopModalVisible}
         />
       </View>
+      {!state.cleared && !stopModalVisible && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.pauseButton,
+            { bottom: (insets.bottom || 0) + 14 },
+            pressed && styles.pauseButtonPressed,
+          ]}
+          onPress={handleOpenStopModal}
+        >
+          <FontAwesome5 name="pause-circle" size={18} color={theme.textPrimary} solid />
+          <Text style={styles.pauseButtonText}>Pause</Text>
+        </Pressable>
+      )}
       <CompletionModal
         visible={showModal}
         bestTimeMs={bestTimeMs}
         onRunAgain={handleRunAgain}
         onDone={handleDone}
       />
+      <StopSessionModal
+        visible={stopModalVisible}
+        uniqueMissCount={uniqueMissCount}
+        onResume={handleResumeSession}
+        onStopAndCopy={handleStopAndCopy}
+      />
+      {Platform.OS === 'web' && toastMessage && (
+        <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
+          <View style={styles.webToast}>
+            <Text style={styles.webToastText}>{toastMessage}</Text>
+          </View>
+        </View>
+      )}
     </ImageBackground>
   );
 }
@@ -265,5 +444,52 @@ const styles = StyleSheet.create({
     fontSize: theme.buttonLabelSize,
     fontWeight: theme.buttonLabelWeight,
     color: theme.textPrimary,
+  },
+  pauseButton: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme.bad,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 20,
+    elevation: 8,
+  },
+  pauseButtonPressed: {
+    opacity: 0.93,
+  },
+  pauseButtonText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  webToastWrap: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    zIndex: 40,
+  },
+  webToast: {
+    minHeight: 44,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(8,12,26,0.92)',
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  webToastText: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

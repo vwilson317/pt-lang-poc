@@ -156,87 +156,95 @@ export function FlashCard({
 
   return (
     <GestureDetector gesture={panGesture}>
-      <Animated.View style={[styles.card, animatedCardStyle]}>
-        <LinearGradient
-          colors={[...cardSurfaceColors]}
-          style={styles.cardGradient}
-        >
-          <View style={styles.inner}>
-            <Text style={styles.pt}>{word.pt}</Text>
-            {word.pronHintEn != null && (
-              <Text style={styles.pronHint}>{word.pronHintEn}</Text>
-            )}
+      <View style={styles.gestureSurface}>
+        <Animated.View style={[styles.card, animatedCardStyle]}>
+          <LinearGradient
+            colors={[...cardSurfaceColors]}
+            style={styles.cardGradient}
+          >
+            <View style={styles.inner}>
+              <Text style={styles.pt}>{word.pt}</Text>
+              {word.pronHintEn != null && (
+                <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+              )}
 
-            {uiState === 'PROMPT' && (
-              <Pressable
-                style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
-                onPress={handlePress}
-                onLongPress={handleLongPress}
-                disabled={disabled}
-              >
-                <LinearGradient
-                  colors={[...audioButtonColors]}
-                  style={StyleSheet.absoluteFill}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
-                <View style={styles.audioButtonContent}>
-                  {speedIndicator != null ? (
-                    <Text style={styles.speedLabel}>{speedIndicator}x</Text>
-                  ) : (
-                    <>
-                      <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
-                      <Text style={styles.audioLabel}>Tap to play</Text>
-                    </>
+              {uiState === 'PROMPT' && (
+                <Pressable
+                  style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
+                  onPress={handlePress}
+                  onLongPress={handleLongPress}
+                  disabled={disabled}
+                >
+                  <LinearGradient
+                    colors={[...audioButtonColors]}
+                    style={StyleSheet.absoluteFill}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  />
+                  <View style={styles.audioButtonContent}>
+                    {speedIndicator != null ? (
+                      <Text style={styles.speedLabel}>{speedIndicator}x</Text>
+                    ) : (
+                      <>
+                        <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
+                        <Text style={styles.audioLabel}>Tap to play</Text>
+                      </>
+                    )}
+                  </View>
+                </Pressable>
+              )}
+
+              {uiState === 'REVEAL_DONT_KNOW' && (
+                <View style={styles.reveal}>
+                  {word.en != null && (
+                    <Text style={styles.en}>{word.en}</Text>
                   )}
+                  {word.pronHintEn != null && (
+                    <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+                  )}
+                  <Text style={styles.autoAdvance}>Next in a moment…</Text>
                 </View>
-              </Pressable>
-            )}
+              )}
 
-            {uiState === 'REVEAL_DONT_KNOW' && (
-              <View style={styles.reveal}>
-                {word.en != null && (
-                  <Text style={styles.en}>{word.en}</Text>
-                )}
-                {word.pronHintEn != null && (
-                  <Text style={styles.pronHint}>{word.pronHintEn}</Text>
-                )}
-                <Text style={styles.autoAdvance}>Next in a moment…</Text>
-              </View>
-            )}
-
-            {showChoices && (
-              <View style={styles.choices}>
-                {choiceOptions.map((opt, i) => {
-                  const isCorrect = i === correctChoiceIndex;
-                  const isSelected = i === selectedChoiceIndex;
-                  const optionStyle = [
-                    styles.option,
-                    isFeedback && isCorrect && styles.optionCorrect,
-                    isFeedback && isSelected && !isCorrect && styles.optionWrong,
-                  ];
-                  return (
-                    <TouchableOpacity
-                      key={i}
-                      style={optionStyle}
-                      onPress={() => !isFeedback && onChooseOption(i)}
-                      disabled={disabled || isFeedback}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.optionText}>{opt}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-        </LinearGradient>
-      </Animated.View>
+              {showChoices && (
+                <View style={styles.choices}>
+                  {choiceOptions.map((opt, i) => {
+                    const isCorrect = i === correctChoiceIndex;
+                    const isSelected = i === selectedChoiceIndex;
+                    const optionStyle = [
+                      styles.option,
+                      isFeedback && isCorrect && styles.optionCorrect,
+                      isFeedback && isSelected && !isCorrect && styles.optionWrong,
+                    ];
+                    return (
+                      <TouchableOpacity
+                        key={i}
+                        style={optionStyle}
+                        onPress={() => !isFeedback && onChooseOption(i)}
+                        disabled={disabled || isFeedback}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.optionText}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          </LinearGradient>
+        </Animated.View>
+      </View>
     </GestureDetector>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureSurface: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   card: {
     width: '88%' as const,
     maxWidth: 360,
