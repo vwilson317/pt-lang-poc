@@ -4,6 +4,8 @@ import type { Word } from '../types/word';
 const KEY_BEST_CLEAR_MS = 'bestClearMs';
 const KEY_RUNS_COUNT = 'runsCount';
 const KEY_CUSTOM_WORDS = 'customWords';
+const KEY_AUDIO_PLAYBACK_RATE = 'audioPlaybackRate';
+const KEY_HAS_SEEN_GESTURE_DEMO = 'hasSeenGestureDemo';
 
 export async function getBestClearMs(): Promise<number | null> {
   const raw = await AsyncStorage.getItem(KEY_BEST_CLEAR_MS);
@@ -79,6 +81,41 @@ export async function saveCustomWords(words: Word[]): Promise<void> {
 
 export async function clearCustomWords(): Promise<void> {
   await AsyncStorage.removeItem(KEY_CUSTOM_WORDS);
+}
+
+// --- Audio playback speed (v1.1) ---
+
+const VALID_RATES = [0.5, 1.0, 1.5, 2.0] as const;
+const DEFAULT_RATE = 1.5;
+
+export async function getAudioPlaybackRate(): Promise<number> {
+  const raw = await AsyncStorage.getItem(KEY_AUDIO_PLAYBACK_RATE);
+  if (raw == null) return DEFAULT_RATE;
+  const n = parseFloat(raw);
+  return VALID_RATES.includes(n as (typeof VALID_RATES)[number]) ? n : DEFAULT_RATE;
+}
+
+export async function setAudioPlaybackRate(rate: number): Promise<void> {
+  const value = VALID_RATES.includes(rate as (typeof VALID_RATES)[number]) ? rate : DEFAULT_RATE;
+  await AsyncStorage.setItem(KEY_AUDIO_PLAYBACK_RATE, String(value));
+}
+
+/** Cycle: 0.5 → 1.0 → 1.5 → 2.0 → repeat */
+export function cycleAudioPlaybackRate(current: number): number {
+  const i = VALID_RATES.indexOf(current as (typeof VALID_RATES)[number]);
+  const next = i < 0 ? DEFAULT_RATE : VALID_RATES[(i + 1) % VALID_RATES.length];
+  return next;
+}
+
+// --- Gesture demo (v1.1) ---
+
+export async function getHasSeenGestureDemo(): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(KEY_HAS_SEEN_GESTURE_DEMO);
+  return raw === 'true';
+}
+
+export async function setHasSeenGestureDemo(): Promise<void> {
+  await AsyncStorage.setItem(KEY_HAS_SEEN_GESTURE_DEMO, 'true');
 }
 
 // --- Per-word audio adaptation (optional, local only) ---
