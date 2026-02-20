@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Platform, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { theme } from '../theme';
 
@@ -9,7 +9,6 @@ type HeaderHUDProps = {
   remaining: number;
   startedAt: number | null;
   frozen?: boolean;
-  onStopPress?: () => void;
 };
 
 function formatElapsed(ms: number): string {
@@ -29,7 +28,6 @@ export function HeaderHUD({
   remaining,
   startedAt,
   frozen = false,
-  onStopPress,
 }: HeaderHUDProps) {
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -66,15 +64,6 @@ export function HeaderHUD({
               <FontAwesome5 name="clock" size={theme.iconSizeHud} color={theme.info} solid />
               <Text style={styles.count}>{formatElapsed(elapsedMs)}</Text>
             </View>
-          )}
-          {!frozen && onStopPress && (
-            <Pressable
-              style={({ pressed }) => [styles.stopPill, pressed && styles.stopPillPressed]}
-              onPress={onStopPress}
-            >
-              <FontAwesome5 name="stop-circle" size={theme.iconSizeHud} color={theme.bad} solid />
-              <Text style={styles.stopText}>Stop</Text>
-            </Pressable>
           )}
         </View>
       </View>
@@ -113,7 +102,6 @@ const styles = StyleSheet.create({
   rightCluster: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   pill: {
     flexDirection: 'row',
@@ -128,25 +116,6 @@ const styles = StyleSheet.create({
   },
   count: {
     fontSize: theme.hudNumberSize,
-    fontWeight: '700',
-    color: theme.textPrimary,
-  },
-  stopPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 30,
-    paddingHorizontal: 10,
-    borderRadius: 16,
-    backgroundColor: theme.surfaceStrong,
-    borderWidth: 1,
-    borderColor: theme.stroke,
-  },
-  stopPillPressed: {
-    opacity: 0.92,
-  },
-  stopText: {
-    fontSize: 13,
     fontWeight: '700',
     color: theme.textPrimary,
   },

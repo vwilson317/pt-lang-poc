@@ -9,6 +9,7 @@ import {
   Platform,
   ToastAndroid,
 } from 'react-native';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import Slider from '@react-native-community/slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
@@ -68,7 +69,9 @@ export function FlashSessionScreen() {
   const [modalDismissed, setModalDismissed] = React.useState(false);
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
   const [missedCountsById, setMissedCountsById] = React.useState<Record<string, number>>({});
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null);
   const lastClearedRef = useRef(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userHasEnabledAudioRef = useRef(false);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
   const lastRecordedWrongIdRef = useRef<string | null>(null);
@@ -225,6 +228,22 @@ export function FlashSessionScreen() {
     setStopModalVisible(false);
   }, []);
 
+  const showNativeCopyToast = useCallback((message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+      return;
+    }
+    if (Platform.OS === 'web') {
+      setToastMessage(message);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setToastMessage(null);
+      }, 2200);
+      return;
+    }
+    Alert.alert('Copied', message);
+  }, []);
+
   const handleStopAndCopy = useCallback(async () => {
     const exportText = buildMissedWordsListExport(missedWordExportItems);
     try {
@@ -233,11 +252,7 @@ export function FlashSessionScreen() {
         uniqueMissCount > 0
           ? `Copied ${uniqueMissCount} missed words to clipboard`
           : 'Copied to clipboard';
-      if (Platform.OS === 'android') {
-        ToastAndroid.show(toastMessage, ToastAndroid.SHORT);
-      } else {
-        Alert.alert('Copied', toastMessage);
-      }
+      showNativeCopyToast(toastMessage);
     } catch {
       Alert.alert('Copy failed', 'Could not copy the export to your clipboard.');
     } finally {
@@ -249,7 +264,13 @@ export function FlashSessionScreen() {
       lastRecordedWrongIdRef.current = null;
       stopSession();
     }
-  }, [missedWordExportItems, stopSession, uniqueMissCount]);
+  }, [missedWordExportItems, showNativeCopyToast, stopSession, uniqueMissCount]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (state?.cleared) {
@@ -290,6 +311,14 @@ export function FlashSessionScreen() {
             <Text style={styles.startButtonLabel}>Start</Text>
           </Pressable>
         </View>
+        {Platform.OS === 'web' && toastMessage && (
+          <View pointerEvents="none" style={[styles.webToastWrap, { bottom: (insets.bottom || 0) + 16 }]}>
+            <View style={styles.webToast}>
+              <FontAwesome5 name="check-circle" size={16} color={theme.good} solid />
+              <Text style={styles.webToastText}>{toastMessage}</Text>
+            </View>
+          </View>
+        )}
       </ImageBackground>
     );
   }
@@ -306,7 +335,6 @@ export function FlashSessionScreen() {
         remaining={remaining}
         startedAt={state.startedAt}
         frozen={state.cleared || stopModalVisible}
-        onStopPress={handleOpenStopModal}
       />
       <View style={styles.content}>
         <FlashCard
@@ -323,6 +351,19 @@ export function FlashSessionScreen() {
           disabled={state.cleared || stopModalVisible}
         />
       </View>
+      {!state.cleared && !stopModalVisible && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.pauseButton,
+            { bottom: (insets.bottom || 0) + 14 },
+            pressed && styles.pauseButtonPressed,
+          ]}
+          onPress={handleOpenStopModal}
+        >
+          <FontAwesome5 name="pause-circle" size={18} color={theme.textPrimary} solid />
+          <Text style={styles.pauseButtonText}>Pause</Text>
+        </Pressable>
+      )}
       <CompletionModal
         visible={showModal}
         bestTimeMs={bestTimeMs}
@@ -335,6 +376,14 @@ export function FlashSessionScreen() {
         onResume={handleResumeSession}
         onStopAndCopy={handleStopAndCopy}
       />
+      {Platform.OS === 'web' && toastMessage && (
+        <View pointerEvents="none" style={[styles.webToastWrap, { bottom: (insets.bottom || 0) + 16 }]}>
+          <View style={styles.webToast}>
+            <FontAwesome5 name="check-circle" size={16} color={theme.good} solid />
+            <Text style={styles.webToastText}>{toastMessage}</Text>
+          </View>
+        </View>
+      )}
     </ImageBackground>
   );
 }
@@ -395,5 +444,52 @@ const styles = StyleSheet.create({
     fontSize: theme.buttonLabelSize,
     fontWeight: theme.buttonLabelWeight,
     color: theme.textPrimary,
+  },
+  pauseButton: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme.bad,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 20,
+    elevation: 8,
+  },
+  pauseButtonPressed: {
+    opacity: 0.93,
+  },
+  pauseButtonText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  webToastWrap: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    zIndex: 40,
+  },
+  webToast: {
+    minHeight: 44,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(8,12,26,0.92)',
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  webToastText: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
