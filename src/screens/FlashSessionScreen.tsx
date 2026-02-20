@@ -223,7 +223,7 @@ export function FlashSessionScreen() {
     setModalDismissed(true);
   }, []);
 
-  const showModal = state?.cleared && !modalDismissed;
+  const showModal = Boolean(state?.cleared && !modalDismissed);
   const [bestTimeMs, setBestTimeMs] = React.useState<number | null>(null);
 
   const missedWordExportItems = React.useMemo(() => {
