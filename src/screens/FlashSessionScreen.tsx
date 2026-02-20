@@ -34,59 +34,10 @@ type MissedWordExportItem = {
   misses: number;
 };
 
-function buildMissedWordsRemixExport(items: MissedWordExportItem[]): string {
-  const generatedAt = new Date().toLocaleString();
-  const totalMisses = items.reduce((acc, item) => acc + item.misses, 0);
-  const byMissPriority = [...items].sort(
-    (a, b) => b.misses - a.misses || a.pt.localeCompare(b.pt)
-  );
-  const byEnglish = [...items].sort((a, b) => a.en.localeCompare(b.en));
-  const pronunciationItems = byMissPriority.filter((item) => item.pronHintEn);
-
-  const challengeGroups: string[] = [];
-  for (let i = 0; i < byMissPriority.length; i += 3) {
-    const slice = byMissPriority.slice(i, i + 3).map((item) => item.pt);
-    if (slice.length >= 2) {
-      challengeGroups.push(`- Build one sentence using: ${slice.join(', ')}`);
-    }
-    if (challengeGroups.length >= 3) break;
-  }
-  if (challengeGroups.length === 0) {
-    challengeGroups.push('- Add 3 missed words and write one sentence with each.');
-  }
-
-  return [
-    '# Missed Words Remix',
-    `Generated: ${generatedAt}`,
-    `Unique missed words: ${items.length}`,
-    `Total misses: ${totalMisses}`,
-    '',
-    'Section 1 - Rapid Recall (PT -> EN)',
-    ...(byMissPriority.length > 0
-      ? byMissPriority.map(
-          (item, idx) =>
-            `${idx + 1}. ${item.pt} -> ________  [answer: ${item.en}] (misses: ${item.misses})`
-        )
-      : ['- No missed words this run.']),
-    '',
-    'Section 2 - Reverse Recall (EN -> PT)',
-    ...(byEnglish.length > 0
-      ? byEnglish.map(
-          (item, idx) => `${idx + 1}. ${item.en} -> ________  [answer: ${item.pt}]`
-        )
-      : ['- No missed words this run.']),
-    '',
-    'Section 3 - Pronunciation Pass',
-    ...(pronunciationItems.length > 0
-      ? pronunciationItems.map(
-          (item, idx) => `${idx + 1}. ${item.pt} (${item.pronHintEn}) = ${item.en}`
-        )
-      : ['- No pronunciation hints available for these words.']),
-    '',
-    'Section 4 - Mini Challenge Prompts',
-    ...challengeGroups,
-    '- Say each word aloud 3 times, then cover the answers and recall from memory.',
-  ].join('\n');
+function buildMissedWordsListExport(items: MissedWordExportItem[]): string {
+  const ordered = [...items].sort((a, b) => a.pt.localeCompare(b.pt));
+  if (ordered.length === 0) return 'No missed words this session.';
+  return ordered.map((item) => `${item.pt} - ${item.en}`).join('\n');
 }
 
 export function FlashSessionScreen() {
@@ -270,7 +221,7 @@ export function FlashSessionScreen() {
   }, []);
 
   const handleStopAndCopy = useCallback(async () => {
-    const exportText = buildMissedWordsRemixExport(missedWordExportItems);
+    const exportText = buildMissedWordsListExport(missedWordExportItems);
     try {
       await Clipboard.setStringAsync(exportText);
       Alert.alert(
