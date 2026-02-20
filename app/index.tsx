@@ -1,5 +1,5 @@
-import { FlashSessionScreen } from '../src/screens/FlashSessionScreen';
+import { Redirect } from 'expo-router';
 
 export default function Home() {
-  return <FlashSessionScreen />;
+  return <Redirect href="/(tabs)/practice" />;
 }
