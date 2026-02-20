@@ -1,5 +1,14 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ImageBackground, Pressable, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ImageBackground,
+  Pressable,
+  Alert,
+  Platform,
+  ToastAndroid,
+} from 'react-native';
 import Slider from '@react-native-community/slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
@@ -194,10 +203,6 @@ export function FlashSessionScreen() {
       .sort((a, b) => b.misses - a.misses || a.pt.localeCompare(b.pt));
   }, [missedCountsById]);
   const uniqueMissCount = missedWordExportItems.length;
-  const totalMissCount = React.useMemo(
-    () => missedWordExportItems.reduce((acc, item) => acc + item.misses, 0),
-    [missedWordExportItems]
-  );
 
   const handleStartSession = useCallback(
     (count: number) => {
@@ -224,12 +229,15 @@ export function FlashSessionScreen() {
     const exportText = buildMissedWordsListExport(missedWordExportItems);
     try {
       await Clipboard.setStringAsync(exportText);
-      Alert.alert(
-        'Copied to clipboard',
+      const toastMessage =
         uniqueMissCount > 0
-          ? `Missed words export copied (${uniqueMissCount} words).`
-          : 'Session export copied.'
-      );
+          ? `Copied ${uniqueMissCount} missed words to clipboard`
+          : 'Copied to clipboard';
+      if (Platform.OS === 'android') {
+        ToastAndroid.show(toastMessage, ToastAndroid.SHORT);
+      } else {
+        Alert.alert('Copied', toastMessage);
+      }
     } catch {
       Alert.alert('Copy failed', 'Could not copy the export to your clipboard.');
     } finally {
@@ -324,7 +332,6 @@ export function FlashSessionScreen() {
       <StopSessionModal
         visible={stopModalVisible}
         uniqueMissCount={uniqueMissCount}
-        totalMissCount={totalMissCount}
         onResume={handleResumeSession}
         onStopAndCopy={handleStopAndCopy}
       />

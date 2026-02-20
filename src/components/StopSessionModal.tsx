@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { theme } from '../theme';
 
 type StopSessionModalProps = {
   visible: boolean;
   uniqueMissCount: number;
-  totalMissCount: number;
   onResume: () => void;
   onStopAndCopy: () => void;
 };
@@ -13,7 +13,6 @@ type StopSessionModalProps = {
 export function StopSessionModal({
   visible,
   uniqueMissCount,
-  totalMissCount,
   onResume,
   onStopAndCopy,
 }: StopSessionModalProps) {
@@ -29,11 +28,6 @@ export function StopSessionModal({
       <View style={styles.overlay}>
         <View style={styles.box}>
           <Text style={styles.title}>Stop session?</Text>
-          <Text style={styles.subtitle}>
-            {hasMissedWords
-              ? `Copy ${uniqueMissCount} missed words (${totalMissCount} misses) to clipboard before stopping.`
-              : 'No missed words yet. Stop now and return to start.'}
-          </Text>
           <View style={styles.buttons}>
             <TouchableOpacity
               style={[styles.button, styles.primary]}
@@ -41,7 +35,7 @@ export function StopSessionModal({
               activeOpacity={0.8}
             >
               <Text style={styles.primaryText}>
-                {hasMissedWords ? 'Stop + Copy missed words' : 'Stop session'}
+                {hasMissedWords ? 'Copy + Stop' : 'Stop'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -49,7 +43,10 @@ export function StopSessionModal({
               onPress={onResume}
               activeOpacity={0.8}
             >
-              <Text style={styles.secondaryText}>Resume</Text>
+              <View style={styles.secondaryContent}>
+                <FontAwesome5 name="times-circle" size={16} color={theme.textPrimary} solid />
+                <Text style={styles.secondaryText}>Cancel</Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -61,7 +58,7 @@ export function StopSessionModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -79,15 +76,8 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     color: theme.textPrimary,
-    marginBottom: 8,
+    marginBottom: 18,
     textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 15,
-    color: theme.textMuted,
-    marginBottom: 20,
-    textAlign: 'center',
-    lineHeight: 21,
   },
   buttons: {
     width: '100%',
@@ -110,6 +100,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: theme.stroke,
+  },
+  secondaryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   secondaryText: {
     fontSize: 16,
