@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ImageBackground, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, Pressable, Alert } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
 import { CompletionModal } from '../components/CompletionModal';
+import { StopSessionModal } from '../components/StopSessionModal';
 import { useSession } from '../state/useSession';
 import { getWordById, DECK_LENGTH } from '../data/words';
 import {
@@ -24,6 +26,69 @@ const MIN_CARDS = 50;
 const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 
+type MissedWordExportItem = {
+  id: string;
+  pt: string;
+  en: string;
+  pronHintEn?: string;
+  misses: number;
+};
+
+function buildMissedWordsRemixExport(items: MissedWordExportItem[]): string {
+  const generatedAt = new Date().toLocaleString();
+  const totalMisses = items.reduce((acc, item) => acc + item.misses, 0);
+  const byMissPriority = [...items].sort(
+    (a, b) => b.misses - a.misses || a.pt.localeCompare(b.pt)
+  );
+  const byEnglish = [...items].sort((a, b) => a.en.localeCompare(b.en));
+  const pronunciationItems = byMissPriority.filter((item) => item.pronHintEn);
+
+  const challengeGroups: string[] = [];
+  for (let i = 0; i < byMissPriority.length; i += 3) {
+    const slice = byMissPriority.slice(i, i + 3).map((item) => item.pt);
+    if (slice.length >= 2) {
+      challengeGroups.push(`- Build one sentence using: ${slice.join(', ')}`);
+    }
+    if (challengeGroups.length >= 3) break;
+  }
+  if (challengeGroups.length === 0) {
+    challengeGroups.push('- Add 3 missed words and write one sentence with each.');
+  }
+
+  return [
+    '# Missed Words Remix',
+    `Generated: ${generatedAt}`,
+    `Unique missed words: ${items.length}`,
+    `Total misses: ${totalMisses}`,
+    '',
+    'Section 1 - Rapid Recall (PT -> EN)',
+    ...(byMissPriority.length > 0
+      ? byMissPriority.map(
+          (item, idx) =>
+            `${idx + 1}. ${item.pt} -> ________  [answer: ${item.en}] (misses: ${item.misses})`
+        )
+      : ['- No missed words this run.']),
+    '',
+    'Section 2 - Reverse Recall (EN -> PT)',
+    ...(byEnglish.length > 0
+      ? byEnglish.map(
+          (item, idx) => `${idx + 1}. ${item.en} -> ________  [answer: ${item.pt}]`
+        )
+      : ['- No missed words this run.']),
+    '',
+    'Section 3 - Pronunciation Pass',
+    ...(pronunciationItems.length > 0
+      ? pronunciationItems.map(
+          (item, idx) => `${idx + 1}. ${item.pt} (${item.pronHintEn}) = ${item.en}`
+        )
+      : ['- No pronunciation hints available for these words.']),
+    '',
+    'Section 4 - Mini Challenge Prompts',
+    ...challengeGroups,
+    '- Say each word aloud 3 times, then cover the answers and recall from memory.',
+  ].join('\n');
+}
+
 export function FlashSessionScreen() {
   const insets = useSafeAreaInsets();
   const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
@@ -36,17 +101,25 @@ export function FlashSessionScreen() {
     advanceToNextCard,
     startSession,
     startNewSession,
+    stopSession,
     getClearTimeMs,
   } = useSession();
 
   const [modalDismissed, setModalDismissed] = React.useState(false);
+  const [stopModalVisible, setStopModalVisible] = React.useState(false);
+  const [missedCountsById, setMissedCountsById] = React.useState<Record<string, number>>({});
   const lastClearedRef = useRef(false);
   const userHasEnabledAudioRef = useRef(false);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
+  const lastRecordedWrongIdRef = useRef<string | null>(null);
 
   const currentWord = state?.currentCardId
     ? getWordById(state.currentCardId) ?? null
     : null;
+
+  const recordSessionMiss = useCallback((wordId: string) => {
+    setMissedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
+  }, []);
 
   const handlePlayAudio = useCallback((rate: number) => {
     if (!currentWord) return;
@@ -55,9 +128,12 @@ export function FlashSessionScreen() {
   }, [currentWord]);
 
   const handleSwipeLeft = useCallback(() => {
-    if (state?.currentCardId) recordWordDontKnow(state.currentCardId);
+    if (state?.currentCardId) {
+      recordWordDontKnow(state.currentCardId);
+      recordSessionMiss(state.currentCardId);
+    }
     swipeLeft();
-  }, [swipeLeft, state?.currentCardId]);
+  }, [recordSessionMiss, swipeLeft, state?.currentCardId]);
 
   // Record "Know" once per card when feedback is correct
   useEffect(() => {
@@ -75,6 +151,24 @@ export function FlashSessionScreen() {
   useEffect(() => {
     if (state?.uiState === 'PROMPT') {
       lastRecordedCorrectIdRef.current = null;
+    }
+  }, [state?.uiState, state?.currentCardId]);
+
+  // Record a miss once per card when answer feedback is wrong.
+  useEffect(() => {
+    if (
+      state?.uiState === 'FEEDBACK_WRONG' &&
+      state?.currentCardId &&
+      state.currentCardId !== lastRecordedWrongIdRef.current
+    ) {
+      lastRecordedWrongIdRef.current = state.currentCardId;
+      recordSessionMiss(state.currentCardId);
+    }
+  }, [recordSessionMiss, state?.uiState, state?.currentCardId]);
+
+  useEffect(() => {
+    if (state?.uiState === 'PROMPT') {
+      lastRecordedWrongIdRef.current = null;
     }
   }, [state?.uiState, state?.currentCardId]);
 
@@ -117,7 +211,11 @@ export function FlashSessionScreen() {
 
   const handleRunAgain = useCallback(() => {
     setModalDismissed(false);
+    setStopModalVisible(false);
+    setMissedCountsById({});
     lastClearedRef.current = false;
+    lastRecordedCorrectIdRef.current = null;
+    lastRecordedWrongIdRef.current = null;
     startNewSession();
   }, [startNewSession]);
 
@@ -127,6 +225,72 @@ export function FlashSessionScreen() {
 
   const showModal = state?.cleared && !modalDismissed;
   const [bestTimeMs, setBestTimeMs] = React.useState<number | null>(null);
+
+  const missedWordExportItems = React.useMemo(() => {
+    return Object.entries(missedCountsById)
+      .map(([id, misses]) => {
+        const word = getWordById(id);
+        if (!word?.en) return null;
+        return {
+          id,
+          pt: word.pt,
+          en: word.en,
+          pronHintEn: word.pronHintEn,
+          misses,
+        } as MissedWordExportItem;
+      })
+      .filter((item): item is MissedWordExportItem => item != null)
+      .sort((a, b) => b.misses - a.misses || a.pt.localeCompare(b.pt));
+  }, [missedCountsById]);
+  const uniqueMissCount = missedWordExportItems.length;
+  const totalMissCount = React.useMemo(
+    () => missedWordExportItems.reduce((acc, item) => acc + item.misses, 0),
+    [missedWordExportItems]
+  );
+
+  const handleStartSession = useCallback(
+    (count: number) => {
+      setModalDismissed(false);
+      setStopModalVisible(false);
+      setMissedCountsById({});
+      lastClearedRef.current = false;
+      lastRecordedCorrectIdRef.current = null;
+      lastRecordedWrongIdRef.current = null;
+      startSession(count);
+    },
+    [startSession]
+  );
+
+  const handleOpenStopModal = useCallback(() => {
+    setStopModalVisible(true);
+  }, []);
+
+  const handleResumeSession = useCallback(() => {
+    setStopModalVisible(false);
+  }, []);
+
+  const handleStopAndCopy = useCallback(async () => {
+    const exportText = buildMissedWordsRemixExport(missedWordExportItems);
+    try {
+      await Clipboard.setStringAsync(exportText);
+      Alert.alert(
+        'Copied to clipboard',
+        uniqueMissCount > 0
+          ? `Missed words export copied (${uniqueMissCount} words).`
+          : 'Session export copied.'
+      );
+    } catch {
+      Alert.alert('Copy failed', 'Could not copy the export to your clipboard.');
+    } finally {
+      setStopModalVisible(false);
+      setModalDismissed(false);
+      setMissedCountsById({});
+      lastClearedRef.current = false;
+      lastRecordedCorrectIdRef.current = null;
+      lastRecordedWrongIdRef.current = null;
+      stopSession();
+    }
+  }, [missedWordExportItems, stopSession, uniqueMissCount]);
 
   useEffect(() => {
     if (state?.cleared) {
@@ -162,7 +326,7 @@ export function FlashSessionScreen() {
           </View>
           <Pressable
             style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
-            onPress={() => startSession(displayCount)}
+            onPress={() => handleStartSession(displayCount)}
           >
             <Text style={styles.startButtonLabel}>Start</Text>
           </Pressable>
@@ -182,7 +346,8 @@ export function FlashSessionScreen() {
         wrongCount={state.wrongCount}
         remaining={remaining}
         startedAt={state.startedAt}
-        frozen={state.cleared}
+        frozen={state.cleared || stopModalVisible}
+        onStopPress={handleOpenStopModal}
       />
       <View style={styles.content}>
         <FlashCard
@@ -196,7 +361,7 @@ export function FlashSessionScreen() {
           onChooseOption={chooseOption}
           onAdvance={advanceToNextCard}
           onPlayAudio={handlePlayAudio}
-          disabled={state.cleared}
+          disabled={state.cleared || stopModalVisible}
         />
       </View>
       <CompletionModal
@@ -204,6 +369,13 @@ export function FlashSessionScreen() {
         bestTimeMs={bestTimeMs}
         onRunAgain={handleRunAgain}
         onDone={handleDone}
+      />
+      <StopSessionModal
+        visible={stopModalVisible}
+        uniqueMissCount={uniqueMissCount}
+        totalMissCount={totalMissCount}
+        onResume={handleResumeSession}
+        onStopAndCopy={handleStopAndCopy}
       />
     </ImageBackground>
   );
