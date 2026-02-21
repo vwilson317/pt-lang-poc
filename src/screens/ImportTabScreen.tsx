@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import { Audio, type AVPlaybackStatus } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { createJob, getJobResult, getJobStatus } from '../lib/jobsApi';
 import { addCards, getSelectedDeckId, upsertClip } from '../lib/v11Storage';
@@ -9,6 +10,33 @@ import { theme } from '../theme';
 
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
+
+function normalizeDurationMs(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return null;
+  // Some platforms report seconds while others report milliseconds.
+  return value < 1000 ? Math.round(value * 1000) : Math.round(value);
+}
+
+async function resolveDurationMs(asset: PickerAsset): Promise<number | null> {
+  const pickerDuration = normalizeDurationMs(asset.duration);
+  if (pickerDuration != null) return pickerDuration;
+  if (!asset.mimeType?.startsWith('video/')) return null;
+
+  try {
+    const { sound, status } = await Audio.Sound.createAsync(
+      { uri: asset.uri },
+      { shouldPlay: false },
+      undefined,
+      false
+    );
+    const loaded = status as AVPlaybackStatus;
+    const duration = loaded.isLoaded ? normalizeDurationMs(loaded.durationMillis) : null;
+    await sound.unloadAsync();
+    return duration;
+  } catch {
+    return null;
+  }
+}
 
 function mapFailure(status: ClipStatus | 'PROCESSING', message?: string): string {
   if (status === 'FAILED_NO_AUDIO') {
@@ -62,7 +90,7 @@ export function ImportTabScreen() {
           }));
           await addCards(sentenceCards);
           setState('DONE');
-          router.push(`/clip/${clip.id}`);
+          router.push(`/(tabs)/imports/${clip.id}`);
         } catch {
           setState('FAILED');
           setErrorMessage('Failed to fetch processing status. Try again.');
@@ -88,7 +116,10 @@ export function ImportTabScreen() {
       multiple: false,
     });
     if (result.canceled) return;
-    setAsset((result.assets[0] as PickerAsset) ?? null);
+    const selected = (result.assets[0] as PickerAsset) ?? null;
+    if (!selected) return;
+    const durationMs = await resolveDurationMs(selected);
+    setAsset(durationMs != null ? { ...selected, duration: durationMs } : selected);
     setState('SELECTED');
     setProgress(0);
     setErrorMessage(null);
@@ -181,7 +212,7 @@ export function ImportTabScreen() {
       <View style={styles.centered}>
         <Text style={styles.title}>Media ready</Text>
         <View style={styles.row}>
-          <Pressable style={styles.primaryButton} onPress={() => router.push('/(tabs)/clips')}>
+          <Pressable style={styles.primaryButton} onPress={() => router.push('/(tabs)/imports')}>
             <Text style={styles.primaryLabel}>View Media</Text>
           </Pressable>
           <Pressable

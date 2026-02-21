@@ -54,7 +54,7 @@ export function ClipDetailScreen({ clipId }: Props) {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.headRow}>
-        <Text style={styles.title}>Clip Detail</Text>
+        <Text style={styles.title}>Import Detail</Text>
         <Pressable onPress={() => router.back()}>
           <Text style={styles.link}>Back</Text>
         </Pressable>

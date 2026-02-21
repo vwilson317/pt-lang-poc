@@ -25,15 +25,23 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="import"
         options={{
-          title: 'Media',
-          tabBarIcon: ({ color, size }) => <FontAwesome5 name="file-import" size={size} color={color} solid />,
+          title: 'Upload',
+          tabBarIcon: ({ color, size }) => (
+            <FontAwesome5 name="file-upload" size={size} color={color} solid />
+          ),
         }}
       />
       <Tabs.Screen
-        name="clips"
+        name="imports"
         options={{
-          title: 'Clips',
+          title: 'Imports',
           tabBarIcon: ({ color, size }) => <FontAwesome5 name="film" size={size} color={color} solid />,
+        }}
+      />
+      <Tabs.Screen
+        name="imports/[id]"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen

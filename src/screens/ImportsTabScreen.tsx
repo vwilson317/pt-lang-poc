@@ -6,15 +6,15 @@ import { getClips } from '../lib/v11Storage';
 import type { ClipRecord } from '../types/v11';
 import { theme } from '../theme';
 
-export function ClipsTabScreen() {
+export function ImportsTabScreen() {
   const router = useRouter();
-  const [clips, setClips] = useState<ClipRecord[]>([]);
+  const [imports, setImports] = useState<ClipRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const nextClips = await getClips();
-    setClips(nextClips);
+    const nextImports = await getClips();
+    setImports(nextImports);
     setLoading(false);
   }, []);
 
@@ -31,15 +31,15 @@ export function ClipsTabScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.title}>Loading clips...</Text>
+        <Text style={styles.title}>Loading imports...</Text>
       </View>
     );
   }
 
-  if (clips.length === 0) {
+  if (imports.length === 0) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.title}>No clips yet</Text>
+        <Text style={styles.title}>No imports yet</Text>
         <Text style={styles.subtitle}>Upload media to start transcript mining.</Text>
       </View>
     );
@@ -47,11 +47,11 @@ export function ClipsTabScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {clips.map((clip) => (
+      {imports.map((clip) => (
         <Pressable
           key={clip.id}
           style={styles.item}
-          onPress={() => router.push(`/clip/${clip.id}`)}
+          onPress={() => router.push(`/(tabs)/imports/${clip.id}`)}
         >
           <Text style={styles.meta}>
             {new Date(clip.createdAt).toLocaleString()} ·{' '}

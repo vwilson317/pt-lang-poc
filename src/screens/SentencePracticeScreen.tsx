@@ -109,7 +109,7 @@ export function SentencePracticeScreen({ sourceClipId, onBack }: Props) {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>No sentence cards yet</Text>
-        <Text style={styles.subtitle}>Import a clip to generate sentence cards.</Text>
+        <Text style={styles.subtitle}>Import media to generate sentence cards.</Text>
         <Pressable style={styles.primaryButton} onPress={onBack}>
           <Text style={styles.primaryLabel}>Back to Practice</Text>
         </Pressable>

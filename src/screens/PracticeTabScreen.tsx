@@ -59,10 +59,10 @@ export function PracticeTabScreen() {
           <Text style={styles.modeLabel}>Sentences</Text>
         </Pressable>
         <Pressable
-          onPress={() => router.push('/(tabs)/clips')}
+          onPress={() => router.push('/(tabs)/imports')}
           style={styles.modeBtn}
         >
-          <Text style={styles.modeLabelMuted}>Clips</Text>
+          <Text style={styles.modeLabelMuted}>Imports</Text>
         </Pressable>
       </View>
       <SentencePracticeScreen
