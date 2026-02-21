@@ -1,11 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
 import type { SessionState } from '../types/session';
 import type { Word } from '../types/word';
-import { getShuffledWordIds, getDistractors, getWords } from '../data/words';
+import type { PracticeLanguage } from '../types/practiceLanguage';
+import { getShuffledWordIds, getDistractors, getWordsForLanguage } from '../data/words';
 
 type StartSessionOptions = {
   cardCount: number;
   customWords?: Word[];
+  language?: PracticeLanguage;
 };
 
 type StartSessionInput = number | StartSessionOptions;
@@ -48,11 +50,12 @@ function normalizeMaybeText(value: string | undefined): string | undefined {
 
 function normalizeStartSessionInput(input: StartSessionInput): StartSessionOptions {
   if (typeof input === 'number') {
-    return { cardCount: Math.max(0, Math.floor(input)), customWords: [] };
+    return { cardCount: Math.max(0, Math.floor(input)), customWords: [], language: 'pt' };
   }
   return {
     cardCount: Math.max(0, Math.floor(input.cardCount)),
     customWords: input.customWords ?? [],
+    language: input.language ?? 'pt',
   };
 }
 
@@ -61,13 +64,13 @@ function sanitizeCustomWords(words: Word[]): Word[] {
   const seen = new Set<string>();
   for (const word of words) {
     const id = normalizeMaybeText(word.id);
-    const pt = normalizeMaybeText(word.pt);
-    if (!id || !pt || seen.has(id)) continue;
+    const term = normalizeMaybeText(word.term);
+    if (!id || !term || seen.has(id)) continue;
     seen.add(id);
     out.push({
       ...word,
       id,
-      pt,
+      term,
       en: normalizeMaybeText(word.en),
       pronHintEn: normalizeMaybeText(word.pronHintEn),
       isCustom: true,
@@ -77,7 +80,7 @@ function sanitizeCustomWords(words: Word[]): Word[] {
 }
 
 function buildSessionDeck(options: StartSessionOptions): Word[] {
-  const defaultDeck = getWords();
+  const defaultDeck = getWordsForLanguage(options.language ?? 'pt');
   const byId = new Map(defaultDeck.map((word) => [word.id, word]));
   const defaultWords = getShuffledWordIds(options.cardCount)
     .map((id) => byId.get(id))
@@ -237,6 +240,7 @@ export function useSession() {
     const nextOptions: StartSessionOptions = {
       cardCount: cardCount ?? previous?.cardCount ?? 0,
       customWords: previous?.customWords ?? [],
+      language: previous?.language ?? 'pt',
     };
     startFromOptions(nextOptions);
   }, [startFromOptions]);

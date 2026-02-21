@@ -168,7 +168,7 @@ export function FlashCard({
                   <Text style={styles.speedBadgeText}>{playbackRate}x</Text>
                 </Pressable>
               )}
-              <Text style={styles.pt}>{word.pt}</Text>
+              <Text style={styles.pt}>{word.term}</Text>
               {metadataLine != null && (
                 <Text style={styles.wordMetadata}>{metadataLine}</Text>
               )}

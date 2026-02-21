@@ -1,11 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Word } from '../types/word';
+import type { PracticeLanguage } from '../types/practiceLanguage';
+import { isPracticeLanguage } from '../types/practiceLanguage';
 
 const KEY_BEST_CLEAR_MS = 'bestClearMs';
 const KEY_RUNS_COUNT = 'runsCount';
-const KEY_CUSTOM_WORDS = 'customWords';
 const KEY_AUDIO_PLAYBACK_RATE = 'audioPlaybackRate';
 const KEY_HAS_SEEN_GESTURE_DEMO = 'hasSeenGestureDemo';
+const KEY_PRACTICE_LANGUAGE = 'practiceLanguage';
+const KEY_CUSTOM_WORDS_LEGACY = 'customWords';
 
 export async function getBestClearMs(): Promise<number | null> {
   const raw = await AsyncStorage.getItem(KEY_BEST_CLEAR_MS);
@@ -40,47 +43,68 @@ function normalizeMaybeString(value: unknown): string | undefined {
 
 function toCustomWord(value: unknown): Word | null {
   if (value == null || typeof value !== 'object') return null;
-  const maybe = value as Partial<Word>;
+  const maybe = value as Partial<Word> & { pt?: string };
   const id = normalizeMaybeString(maybe.id);
-  const pt = normalizeMaybeString(maybe.pt);
-  if (!id || !pt) return null;
+  const term = normalizeMaybeString(maybe.term) ?? normalizeMaybeString(maybe.pt);
+  if (!id || !term) return null;
   return {
     id,
-    pt,
+    term,
     en: normalizeMaybeString(maybe.en),
     pronHintEn: normalizeMaybeString(maybe.pronHintEn),
     isCustom: true,
+    language: maybe.language,
   };
 }
 
-export async function getCustomWords(): Promise<Word[]> {
-  const raw = await AsyncStorage.getItem(KEY_CUSTOM_WORDS);
+function getCustomWordsKey(language: PracticeLanguage): string {
+  return `customWords:${language}`;
+}
+
+export async function getPracticeLanguage(): Promise<PracticeLanguage> {
+  const raw = await AsyncStorage.getItem(KEY_PRACTICE_LANGUAGE);
+  if (raw && isPracticeLanguage(raw)) return raw;
+  return 'pt';
+}
+
+export async function setPracticeLanguage(language: PracticeLanguage): Promise<void> {
+  await AsyncStorage.setItem(KEY_PRACTICE_LANGUAGE, language);
+}
+
+export async function getCustomWords(language: PracticeLanguage = 'pt'): Promise<Word[]> {
+  const key = getCustomWordsKey(language);
+  let raw = await AsyncStorage.getItem(key);
+  if (raw == null && language === 'pt') {
+    raw = await AsyncStorage.getItem(KEY_CUSTOM_WORDS_LEGACY);
+  }
   if (raw == null) return [];
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed
       .map(toCustomWord)
-      .filter((word): word is Word => word != null);
+      .filter((word): word is Word => word != null)
+      .map((word) => ({ ...word, language }));
   } catch {
     return [];
   }
 }
 
-export async function saveCustomWords(words: Word[]): Promise<void> {
+export async function saveCustomWords(words: Word[], language: PracticeLanguage = 'pt'): Promise<void> {
   const payload = words
-    .filter((word) => word.isCustom && word.pt.trim())
+    .filter((word) => word.isCustom && word.term.trim())
     .map((word) => ({
       id: word.id,
-      pt: word.pt.trim(),
+      term: word.term.trim(),
       en: normalizeMaybeString(word.en),
       pronHintEn: normalizeMaybeString(word.pronHintEn),
+      language,
     }));
-  await AsyncStorage.setItem(KEY_CUSTOM_WORDS, JSON.stringify(payload));
+  await AsyncStorage.setItem(getCustomWordsKey(language), JSON.stringify(payload));
 }
 
-export async function clearCustomWords(): Promise<void> {
-  await AsyncStorage.removeItem(KEY_CUSTOM_WORDS);
+export async function clearCustomWords(language: PracticeLanguage = 'pt'): Promise<void> {
+  await AsyncStorage.removeItem(getCustomWordsKey(language));
 }
 
 // --- Audio playback speed (v1.1) ---

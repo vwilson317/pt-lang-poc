@@ -1,10 +1,14 @@
 import type { Word } from '../types/word';
+import type { PracticeLanguage } from '../types/practiceLanguage';
+import { FR_TERMS_BY_ID } from './words.fr';
+
+type RawWord = Omit<Word, 'term' | 'language'> & { pt: string };
 
 /**
  * Static word data – local "API" for v1.
  * No database; all words in memory.
  */
-const WORDS: Word[] = [
+const WORDS: RawWord[] = [
   { id: '1', pt: 'o', en: 'the (masc)', pronHintEn: 'oo' },
   { id: '2', pt: 'a', en: 'the (fem)', pronHintEn: 'ah' },
   { id: '3', pt: 'os', en: 'the (plural masc)', pronHintEn: 'oos' },
@@ -605,6 +609,18 @@ const WORDS: Word[] = [
   { id: '592', pt: 'experiência', en: 'experience', pronHintEn: 'es-peh-ree-EN-see-ah' },
 ];
 
+function toLocalizedWord(raw: RawWord, language: PracticeLanguage): Word {
+  const { pt, ...rest } = raw;
+  if (language === 'fr') {
+    const frTerm = FR_TERMS_BY_ID[raw.id];
+    if (!frTerm) {
+      throw new Error(`Missing French term for word id "${raw.id}"`);
+    }
+    return { ...rest, term: frTerm, language };
+  }
+  return { ...rest, term: pt, language };
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {
@@ -616,12 +632,13 @@ function shuffle<T>(arr: T[]): T[] {
 
 /** Returns all words. In v1 this is the "deck". */
 export function getWords(): Word[] {
-  return [...WORDS];
+  return WORDS.map((word) => toLocalizedWord(word, 'pt'));
 }
 
 /** Returns word by id, or undefined. */
 export function getWordById(id: string): Word | undefined {
-  return WORDS.find((w) => w.id === id);
+  const raw = WORDS.find((w) => w.id === id);
+  return raw ? toLocalizedWord(raw, 'pt') : undefined;
 }
 
 /** Total number of words in the deck (for slider max = "all"). */
@@ -633,12 +650,24 @@ export function getShuffledWordIds(maxCount?: number): string[] {
   return maxCount != null ? ids.slice(0, maxCount) : ids;
 }
 
+export function getWordsForLanguage(language: PracticeLanguage): Word[] {
+  return WORDS.map((word) => toLocalizedWord(word, language));
+}
+
+export function getWordByIdForLanguage(
+  id: string,
+  language: PracticeLanguage
+): Word | undefined {
+  const raw = WORDS.find((w) => w.id === id);
+  return raw ? toLocalizedWord(raw, language) : undefined;
+}
+
 /** Pick N random distractors (other words' en) excluding excludeEn. */
 export function getDistractors(
   correctEn: string,
   count: number,
   excludeId?: string,
-  wordPool: Word[] = WORDS
+  wordPool: Word[] = getWords()
 ): string[] {
   const others = wordPool.filter(
     (w) => w.en && w.en !== correctEn && w.id !== excludeId

@@ -14,6 +14,7 @@ import {
 import Slider from '@react-native-community/slider';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import * as Clipboard from 'expo-clipboard';
+import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
@@ -21,8 +22,10 @@ import { CompletionModal } from '../components/CompletionModal';
 import { StopSessionModal } from '../components/StopSessionModal';
 import { GestureDemoOverlay } from '../components/GestureDemoOverlay';
 import type { Word } from '../types/word';
+import type { PracticeLanguage } from '../types/practiceLanguage';
+import { getPracticeLanguageLabel } from '../types/practiceLanguage';
 import { useSession } from '../state/useSession';
-import { getWordById, DECK_LENGTH } from '../data/words';
+import { getWordByIdForLanguage, DECK_LENGTH } from '../data/words';
 import {
   getBestClearMs,
   setBestClearMs,
@@ -32,6 +35,7 @@ import {
   getCustomWords,
   saveCustomWords,
   clearCustomWords,
+  getPracticeLanguage,
   getAudioPlaybackRate,
   setAudioPlaybackRate,
   cycleAudioPlaybackRate,
@@ -48,13 +52,13 @@ const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 
 type ParsedCustomEntry = {
-  pt: string;
+  term: string;
   en?: string;
 };
 
 type MissedWordExportItem = {
   id: string;
-  pt: string;
+  term: string;
   en: string;
   pronHintEn?: string;
   misses: number;
@@ -79,12 +83,12 @@ function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
     const token = tokens[i];
     if (token === ':' || token === '=' || token === '-') continue;
 
-    let ptToken = token;
+    let termToken = token;
     let enToken: string | undefined;
 
     const inlineSep = token.match(/^(.+?)([:=])(.*)$/);
     if (inlineSep) {
-      ptToken = inlineSep[1];
+      termToken = inlineSep[1];
       enToken = normalizeDefinitionToken(inlineSep[3]);
       if (!enToken && tokens[i + 1] && ![':', '=', '-'].includes(tokens[i + 1])) {
         enToken = normalizeDefinitionToken(tokens[i + 1]);
@@ -98,14 +102,14 @@ function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
       i += 2;
     }
 
-    const pt = normalizeWordToken(ptToken);
-    if (!pt) continue;
+    const term = normalizeWordToken(termToken);
+    if (!term) continue;
 
-    const key = pt.toLocaleLowerCase();
+    const key = term.toLocaleLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
 
-    parsed.push({ pt, en: enToken });
+    parsed.push({ term, en: enToken });
   }
 
   return parsed;
@@ -113,23 +117,23 @@ function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
 
 function stringifyParsedCustomInput(entries: ParsedCustomEntry[]): string {
   return entries
-    .map((entry) => (entry.en ? `${entry.pt}:${entry.en}` : entry.pt))
+    .map((entry) => (entry.en ? `${entry.term}:${entry.en}` : entry.term))
     .join(' ');
 }
 
 function buildMissedWordsListExport(items: MissedWordExportItem[]): string {
-  const ordered = [...items].sort((a, b) => a.pt.localeCompare(b.pt));
+  const ordered = [...items].sort((a, b) => a.term.localeCompare(b.term));
   if (ordered.length === 0) return 'No missed words this session.';
-  return ordered.map((item) => `${item.pt} - ${item.en}`).join('\n');
+  return ordered.map((item) => `${item.term} - ${item.en}`).join('\n');
 }
 
 async function resolveDefinitionForCustomWord(
-  pt: string,
+  term: string,
   providedDefinition?: string
 ): Promise<string | undefined> {
   if (providedDefinition) return providedDefinition;
-  // TODO: Fetch a Portuguese word definition when missing.
-  void pt;
+  // TODO: Fetch a definition when missing.
+  void term;
   return undefined;
 }
 
@@ -181,6 +185,7 @@ export function FlashSessionScreen() {
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
   const [playbackRate, setPlaybackRateState] = React.useState<number>(0.5);
   const [showGestureDemo, setShowGestureDemo] = React.useState(false);
+  const [practiceLanguage, setPracticeLanguage] = React.useState<PracticeLanguage>('pt');
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userHasEnabledAudioRef = useRef(false);
@@ -189,20 +194,25 @@ export function FlashSessionScreen() {
   const gestureDemoShownRef = useRef(false);
   const sessionInitRanRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    getCustomWords()
-      .then((words) => {
-        if (cancelled) return;
-        setCustomWords(words);
-      })
-      .finally(() => {
-        if (!cancelled) setCustomWordsLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void getPracticeLanguage()
+        .then(async (language) => {
+          if (cancelled) return;
+          setPracticeLanguage(language);
+          const words = await getCustomWords(language);
+          if (cancelled) return;
+          setCustomWords(words);
+        })
+        .finally(() => {
+          if (!cancelled) setCustomWordsLoaded(true);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
 
   useEffect(() => {
     if (customWords.length === 0 && cardCount < MIN_CARDS) {
@@ -238,28 +248,29 @@ export function FlashSessionScreen() {
     const parsedEntries = parseCustomWordInput(customInput);
     if (parsedEntries.length === 0) {
       setCustomFeedback(null);
-      setCustomError('Enter at least one Portuguese word.');
+      setCustomError('Enter at least one word.');
       return;
     }
     const existingPt = new Set(
-      customWords.map((word) => word.pt.trim().toLocaleLowerCase())
+      customWords.map((word) => word.term.trim().toLocaleLowerCase())
     );
     const seed = Date.now();
     const additions: Word[] = [];
     for (let index = 0; index < parsedEntries.length; index += 1) {
       const entry = parsedEntries[index];
-      const key = entry.pt.toLocaleLowerCase();
+      const key = entry.term.toLocaleLowerCase();
       if (existingPt.has(key)) continue;
       existingPt.add(key);
       const resolvedDefinition = await resolveDefinitionForCustomWord(
-        entry.pt,
+        entry.term,
         entry.en
       );
       additions.push({
         id: `custom-${seed}-${index}`,
-        pt: entry.pt,
+        term: entry.term,
         en: resolvedDefinition,
         isCustom: true,
+        language: practiceLanguage,
       });
     }
     if (additions.length === 0) {
@@ -269,23 +280,23 @@ export function FlashSessionScreen() {
     }
     const nextCustomWords = [...customWords, ...additions];
     setCustomWords(nextCustomWords);
-    await saveCustomWords(nextCustomWords);
+    await saveCustomWords(nextCustomWords, practiceLanguage);
     setCustomInput('');
     setCustomError(null);
     setShowCustomEditor(false);
     setCustomFeedback(
       `Added ${additions.length} custom card${additions.length === 1 ? '' : 's'}.`
     );
-  }, [customInput, customWords]);
+  }, [customInput, customWords, practiceLanguage]);
 
   const handleClearCustomCards = useCallback(async () => {
-    await clearCustomWords();
+    await clearCustomWords(practiceLanguage);
     setCustomWords([]);
     setCustomInput('');
     setCustomError(null);
     setShowCustomEditor(false);
     setCustomFeedback('Cleared all custom cards.');
-  }, []);
+  }, [practiceLanguage]);
 
   const handleToggleCustomEditor = useCallback(() => {
     const nextOpenState = !showCustomEditor;
@@ -439,19 +450,19 @@ export function FlashSessionScreen() {
     }
     return Object.entries(combinedCountsById)
       .map(([id, misses]) => {
-        const word = getWordById(id);
+        const word = getWordByIdForLanguage(id, practiceLanguage);
         if (!word?.en) return null;
         return {
           id,
-          pt: word.pt,
+          term: word.term,
           en: word.en,
           pronHintEn: word.pronHintEn,
           misses,
         } as MissedWordExportItem;
       })
       .filter((item): item is MissedWordExportItem => item != null)
-      .sort((a, b) => b.misses - a.misses || a.pt.localeCompare(b.pt));
-  }, [incorrectCountsById, skippedCountsById]);
+      .sort((a, b) => b.misses - a.misses || a.term.localeCompare(b.term));
+  }, [incorrectCountsById, practiceLanguage, skippedCountsById]);
   const uniqueMissCount = missedWordExportItems.length;
 
   const handleStartSession = useCallback(
@@ -463,9 +474,9 @@ export function FlashSessionScreen() {
       lastClearedRef.current = false;
       lastRecordedCorrectIdRef.current = null;
       lastRecordedIncorrectIdRef.current = null;
-      startSession({ cardCount: count, customWords });
+      startSession({ cardCount: count, customWords, language: practiceLanguage });
     },
-    [customWords, startSession]
+    [customWords, practiceLanguage, startSession]
   );
 
   const handleOpenStopModal = useCallback(() => {
@@ -546,6 +557,9 @@ export function FlashSessionScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.startTitle}>Number of cards</Text>
+          <Text style={styles.startHintText}>
+            Study language: {getPracticeLanguageLabel(practiceLanguage)}
+          </Text>
           <Text style={styles.startCount}>{displayCount}</Text>
           <Slider
             style={styles.slider}
@@ -597,7 +611,9 @@ export function FlashSessionScreen() {
             ]}
           >
             <View style={styles.customEditorHeader}>
-              <Text style={styles.customEditorTitle}>New Portuguese words</Text>
+              <Text style={styles.customEditorTitle}>
+                New {getPracticeLanguageLabel(practiceLanguage)} words
+              </Text>
               <Pressable
                 style={({ pressed }) => [
                   styles.customEditorCloseButton,
@@ -609,7 +625,7 @@ export function FlashSessionScreen() {
               </Pressable>
             </View>
             <Text style={styles.customEditorHint}>
-              Portuguese only. Use spaces, commas, or new lines to separate words.
+              Use spaces, commas, or new lines to separate words.
             </Text>
             <TextInput
               style={styles.customInput}
@@ -620,7 +636,7 @@ export function FlashSessionScreen() {
                 setCustomError(null);
               }}
               multiline
-              placeholder="ex: casa carro amigo"
+              placeholder={practiceLanguage === 'fr' ? 'ex: maison voiture ami' : 'ex: casa carro amigo'}
               placeholderTextColor={theme.textMuted}
               textAlignVertical="top"
               autoCapitalize="none"
@@ -662,7 +678,7 @@ export function FlashSessionScreen() {
             ]}
           >
             <Text style={styles.customTooltipText}>
-              Add Portuguese words separated by spaces. Optional definition format:
+              Add words separated by spaces. Optional definition format:
               casa:house, casa=house, or casa - house.
             </Text>
           </View>

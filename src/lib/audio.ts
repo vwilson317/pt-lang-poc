@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { Audio } from 'expo-av';
 import { speakTts, isTtsAvailable, cancelTts } from './tts';
+import type { PracticeLanguage } from '../types/practiceLanguage';
 
 /** Playback rates: 0.5, 1.0, 1.5, 2.0 (default 1.5 per v1.1) */
 export const RATE_MIN = 0.5;
@@ -12,7 +13,7 @@ export const RATE_DECODE = 0.75;
 export const RATE_BASELINE = 1.0;
 export const RATE_CHALLENGE = 1.25;
 
-type WordLike = { pt: string; audioUrl?: string };
+type WordLike = { term: string; audioUrl?: string; language?: PracticeLanguage };
 
 /**
  * Stop any current word audio (TTS or expo-av). No overlapping audio.
@@ -43,10 +44,10 @@ async function unloadCurrentSound(): Promise<void> {
  * Rate is applied to TTS and can be set on native Sound when supported.
  */
 export function playWordAudio(word: WordLike | null | undefined, rate: number = RATE_DEFAULT): void {
-  if (!word?.pt) return;
+  if (!word?.term) return;
 
   if (Platform.OS === 'web' && isTtsAvailable()) {
-    speakTts(word.pt, rate);
+    speakTts(word.term, rate, word.language ?? 'pt');
     return;
   }
 

@@ -1,9 +1,14 @@
 /**
  * Web Speech API TTS – PWA only.
- * Uses speechSynthesis with Portuguese (pt-BR) when available.
+ * Uses speechSynthesis with language-specific voice when available.
  */
 
-const PT_BR = 'pt-BR';
+import type { PracticeLanguage } from '../types/practiceLanguage';
+
+const TTS_VOICE_BY_LANGUAGE: Record<PracticeLanguage, string> = {
+  pt: 'pt-BR',
+  fr: 'fr-FR',
+};
 
 function isWeb(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -17,14 +22,18 @@ export function cancelTts(): void {
   currentUtterance = null;
 }
 
-export function speakTts(text: string, rate: number): void {
+export function speakTts(
+  text: string,
+  rate: number,
+  language: PracticeLanguage = 'pt'
+): void {
   if (!text.trim()) return;
   if (!isWeb()) return;
 
   cancelTts();
 
   const u = new SpeechSynthesisUtterance(text.trim());
-  u.lang = PT_BR;
+  u.lang = TTS_VOICE_BY_LANGUAGE[language];
   u.rate = rate;
   u.volume = 1;
 
