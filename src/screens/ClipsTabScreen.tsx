@@ -40,7 +40,7 @@ export function ClipsTabScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>No clips yet</Text>
-        <Text style={styles.subtitle}>Import a screen recording to start transcript mining.</Text>
+        <Text style={styles.subtitle}>Upload media to start transcript mining.</Text>
       </View>
     );
   }

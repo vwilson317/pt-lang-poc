@@ -86,7 +86,7 @@ export async function clearCustomWords(): Promise<void> {
 // --- Audio playback speed (v1.1) ---
 
 const VALID_RATES = [0.5, 1.0, 1.5, 2.0] as const;
-const DEFAULT_RATE = 1.5;
+const DEFAULT_RATE = 0.5;
 
 export async function getAudioPlaybackRate(): Promise<number> {
   const raw = await AsyncStorage.getItem(KEY_AUDIO_PLAYBACK_RATE);

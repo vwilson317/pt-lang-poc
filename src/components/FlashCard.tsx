@@ -26,9 +26,18 @@ const customAudioButtonColors = ['#FF8E53', '#FF5D9B'] as const;
 
 function wordMetadataLine(word: Word): string | null {
   const parts: string[] = [];
-  if (word.wordType) parts.push(word.wordType.toUpperCase());
+  const normalizedEn = word.en?.trim().toLocaleLowerCase();
+  const inferredVerb =
+    !word.wordType &&
+    typeof normalizedEn === 'string' &&
+    (normalizedEn.startsWith('to ') ||
+      normalizedEn.includes('/to ') ||
+      normalizedEn.startsWith("let's "));
+  const resolvedWordType = word.wordType ?? (inferredVerb ? 'verb' : undefined);
+  const resolvedVerbLabel = word.verbLabel ?? (inferredVerb ? 'infinitive' : undefined);
+  if (resolvedWordType) parts.push(resolvedWordType.toUpperCase());
   if (word.gender) parts.push(word.gender.toUpperCase());
-  if (word.verbLabel) parts.push(word.verbLabel);
+  if (resolvedVerbLabel) parts.push(resolvedVerbLabel);
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
@@ -61,7 +70,7 @@ export function FlashCard({
   onAdvance,
   onPlayAudio,
   onTapToSkip,
-  playbackRate = 1.5,
+  playbackRate = 0.5,
   onCycleSpeed,
   disabled = false,
 }: FlashCardProps) {

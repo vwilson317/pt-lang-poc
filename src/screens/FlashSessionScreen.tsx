@@ -178,7 +178,7 @@ export function FlashSessionScreen() {
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
   const [missedCountsById, setMissedCountsById] = React.useState<Record<string, number>>({});
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
-  const [playbackRate, setPlaybackRateState] = React.useState<number>(1.5);
+  const [playbackRate, setPlaybackRateState] = React.useState<number>(0.5);
   const [showGestureDemo, setShowGestureDemo] = React.useState(false);
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

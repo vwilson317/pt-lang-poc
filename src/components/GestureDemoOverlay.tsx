@@ -70,7 +70,7 @@ export function GestureDemoOverlay({ visible, onDismiss }: GestureDemoOverlayPro
             <Text style={styles.label}>Swipe ← Skip</Text>
           </View>
           <Text style={styles.label}>Tap = Stop Audio</Text>
-          <Text style={styles.label}>Tap 1.5x to change speed</Text>
+          <Text style={styles.label}>Tap speed badge to change speed</Text>
         </View>
       </View>
     </Pressable>
@@ -80,7 +80,7 @@ export function GestureDemoOverlay({ visible, onDismiss }: GestureDemoOverlayPro
 const styles = StyleSheet.create({
   scrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: 'rgba(0,0,0,0.92)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,

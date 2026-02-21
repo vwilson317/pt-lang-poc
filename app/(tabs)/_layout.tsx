@@ -25,7 +25,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="import"
         options={{
-          title: 'Import',
+          title: 'Media',
           tabBarIcon: ({ color, size }) => <FontAwesome5 name="file-import" size={size} color={color} solid />,
         }}
       />

@@ -13,6 +13,7 @@ type UploadFile = {
   uri: string;
   name: string;
   mimeType?: string;
+  file?: File;
 };
 
 type CreateJobResponse = {
@@ -40,15 +41,34 @@ export async function createJob(
         reject(new Error(`Upload failed (${status})`));
         return;
       }
-      resolve(xhr.response as CreateJobResponse);
+      let responsePayload: CreateJobResponse | null = null;
+      try {
+        responsePayload =
+          (xhr.response as CreateJobResponse | null) ??
+          (xhr.responseText ? (JSON.parse(xhr.responseText) as CreateJobResponse) : null);
+      } catch {
+        responsePayload = null;
+      }
+      if (!responsePayload?.jobId) {
+        reject(new Error('Upload succeeded but response was invalid'));
+        return;
+      }
+      resolve(responsePayload);
     };
 
     const formData = new FormData();
-    formData.append('file', {
-      uri: file.uri,
-      name: file.name,
-      type: file.mimeType ?? 'video/mp4',
-    } as unknown as Blob);
+    if (file.file instanceof File) {
+      formData.append('file', file.file, file.name);
+    } else {
+      formData.append('file', {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType ?? 'application/octet-stream',
+      } as unknown as Blob);
+    }
+    if (file.mimeType) {
+      formData.append('mimeType', file.mimeType);
+    }
     xhr.send(formData);
   });
 }

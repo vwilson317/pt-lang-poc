@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -16,6 +17,10 @@ func NewProcessor() *Processor {
 
 func (p *Processor) Process(ctx context.Context, jobID string, filePath string) (Status, string, *ClipResult) {
 	defer os.Remove(filePath) // No video retention.
+
+	if isImageUpload(filePath) {
+		return StatusDone, "", imageUploadResult(jobID)
+	}
 
 	durationSec, hasAudio, err := probeMedia(ctx, filePath)
 	if err != nil {
@@ -84,4 +89,33 @@ func (p *Processor) Process(ctx context.Context, jobID string, filePath string) 
 		return StatusFailedTranscribe, fmt.Sprintf("empty transcript for job %s", jobID), nil
 	}
 	return StatusDone, "", result
+}
+
+func isImageUpload(filePath string) bool {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic":
+		return true
+	default:
+		return false
+	}
+}
+
+func imageUploadResult(jobID string) *ClipResult {
+	return &ClipResult{
+		ID:                   jobID,
+		SourceLanguage:       "pt",
+		TargetLanguage:       "en",
+		TranscriptOriginal:   "Imagem enviada para estudo.",
+		TranscriptTranslated: "Image uploaded for study.",
+		CreatedAt:            time.Now().UnixMilli(),
+		Segments: []Segment{
+			{
+				ID:             "seg-1",
+				StartMs:        0,
+				EndMs:          0,
+				TextOriginal:   "Imagem enviada para estudo.",
+				TextTranslated: "Image uploaded for study.",
+			},
+		},
+	}
 }

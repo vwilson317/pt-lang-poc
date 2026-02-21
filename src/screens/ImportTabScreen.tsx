@@ -8,27 +8,28 @@ import type { ClipStatus, FlashCardRecord } from '../types/v11';
 import { theme } from '../theme';
 
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
+type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
 
 function mapFailure(status: ClipStatus | 'PROCESSING', message?: string): string {
   if (status === 'FAILED_NO_AUDIO') {
     return [
-      'This clip does not contain usable audio.',
-      'Screen recordings must include sound.',
+      'This media file does not contain usable audio.',
+      'Videos must include sound.',
       'Record with device audio enabled.',
       'Avoid Bluetooth/headphones if it mutes recording.',
       'Quiet room + speaker volume medium.',
     ].join('\n');
   }
-  if (status === 'FAILED_TOO_LONG') return 'Clip is longer than 45 seconds.';
+  if (status === 'FAILED_TOO_LONG') return 'Video is longer than 45 seconds.';
   if (status === 'FAILED_TRANSCODE') return 'Could not decode media.';
   if (status === 'FAILED_TRANSCRIBE') return 'Could not transcribe audio.';
-  return message || 'Processing failed. Try another recording.';
+  return message || 'Processing failed. Try another file.';
 }
 
 export function ImportTabScreen() {
   const router = useRouter();
   const [state, setState] = useState<ImportState>('EMPTY');
-  const [asset, setAsset] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  const [asset, setAsset] = useState<PickerAsset | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -71,22 +72,23 @@ export function ImportTabScreen() {
     return () => clearInterval(timer);
   }, [jobId, router, state]);
 
-  const maybeDurationMs = (asset as ({ duration?: number } & DocumentPicker.DocumentPickerAsset) | null)?.duration;
+  const maybeDurationMs = asset?.duration;
   const hasDuration = typeof maybeDurationMs === 'number' && maybeDurationMs > 0;
   const durationSec = useMemo(() => {
     if (!hasDuration || !maybeDurationMs) return null;
     return Math.round(maybeDurationMs / 1000);
   }, [hasDuration, maybeDurationMs]);
   const durationTooLong = (durationSec ?? 0) > 45;
+  const isImage = Boolean(asset?.mimeType?.startsWith('image/'));
 
   const pickFile = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({
-      type: 'video/*',
+      type: ['video/*', 'image/*'],
       copyToCacheDirectory: true,
       multiple: false,
     });
     if (result.canceled) return;
-    setAsset(result.assets[0] ?? null);
+    setAsset((result.assets[0] as PickerAsset) ?? null);
     setState('SELECTED');
     setProgress(0);
     setErrorMessage(null);
@@ -101,26 +103,28 @@ export function ImportTabScreen() {
       const created = await createJob(
         {
           uri: asset.uri,
-          name: asset.name ?? 'screen-recording.mp4',
-          mimeType: asset.mimeType ?? 'video/mp4',
+          name: asset.name ?? (isImage ? 'media-image' : 'media-video'),
+          mimeType: asset.mimeType ?? (isImage ? 'image/jpeg' : 'video/mp4'),
+          file: asset.file,
         },
         (pct) => setProgress(pct)
       );
       setJobId(created.jobId);
       setState('PROCESSING');
-    } catch {
+    } catch (error) {
       setState('FAILED');
-      setErrorMessage('Upload failed. Please try again in a moment.');
+      const fallback = 'Upload failed. Please try again in a moment.';
+      setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
     }
-  }, [asset]);
+  }, [asset, isImage]);
 
   if (state === 'EMPTY') {
     return (
       <View style={styles.centered}>
-        <Text style={styles.title}>Import Screen Recording</Text>
-        <Text style={styles.helper}>Max 45 seconds. Audio required.</Text>
+        <Text style={styles.title}>Upload Media</Text>
+        <Text style={styles.helper}>Upload a photo or a video. Videos can be up to 45 seconds.</Text>
         <Pressable style={styles.primaryButton} onPress={() => void pickFile()}>
-          <Text style={styles.primaryLabel}>Import Screen Recording</Text>
+          <Text style={styles.primaryLabel}>Choose Media</Text>
         </Pressable>
       </View>
     );
@@ -130,11 +134,13 @@ export function ImportTabScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>File Selected</Text>
-        <Text style={styles.fileName}>{asset?.name || 'Screen Recording'}</Text>
+        <Text style={styles.fileName}>{asset?.name || 'Selected media'}</Text>
         <Text style={styles.helper}>
-          Duration: {durationSec != null ? `${durationSec}s` : 'Unavailable'}
+          {isImage
+            ? 'Type: Photo'
+            : `Duration: ${durationSec != null ? `${durationSec}s` : 'Unavailable'}`}
         </Text>
-        {durationTooLong && (
+        {!isImage && durationTooLong && (
           <Text style={styles.warning}>This file appears longer than 45 seconds.</Text>
         )}
         <View style={styles.row}>
@@ -142,7 +148,7 @@ export function ImportTabScreen() {
             <Text style={styles.secondaryLabel}>Choose Another</Text>
           </Pressable>
           <Pressable style={styles.primaryButton} onPress={() => void startUpload()}>
-            <Text style={styles.primaryLabel}>Upload & Process</Text>
+            <Text style={styles.primaryLabel}>Upload Media</Text>
           </Pressable>
         </View>
       </View>
@@ -158,7 +164,7 @@ export function ImportTabScreen() {
         <Text style={styles.helper}>
           {state === 'UPLOADING'
             ? 'Upload in progress.'
-            : 'You can keep practicing while we process this clip.'}
+            : 'You can keep practicing while we process this media.'}
         </Text>
         <Pressable
           style={styles.secondaryButton}
@@ -173,10 +179,10 @@ export function ImportTabScreen() {
   if (state === 'DONE') {
     return (
       <View style={styles.centered}>
-        <Text style={styles.title}>Clip ready</Text>
+        <Text style={styles.title}>Media ready</Text>
         <View style={styles.row}>
           <Pressable style={styles.primaryButton} onPress={() => router.push('/(tabs)/clips')}>
-            <Text style={styles.primaryLabel}>View Clip</Text>
+            <Text style={styles.primaryLabel}>View Media</Text>
           </Pressable>
           <Pressable
             style={styles.secondaryButton}
@@ -187,7 +193,7 @@ export function ImportTabScreen() {
               setProgress(0);
             }}
           >
-            <Text style={styles.secondaryLabel}>Import Another</Text>
+            <Text style={styles.secondaryLabel}>Upload Another</Text>
           </Pressable>
         </View>
       </View>
@@ -196,7 +202,7 @@ export function ImportTabScreen() {
 
   return (
     <View style={styles.centered}>
-      <Text style={styles.title}>Import failed</Text>
+      <Text style={styles.title}>Upload failed</Text>
       <Text style={styles.errorText}>{errorMessage}</Text>
       <Pressable
         style={styles.primaryButton}

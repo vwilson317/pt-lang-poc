@@ -28,14 +28,18 @@ func main() {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid multipart form"})
 			return
 		}
-		file, _, err := r.FormFile("file")
+		file, header, err := r.FormFile("file")
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file field"})
 			return
 		}
 		defer file.Close()
 
-		tmp, err := os.CreateTemp("", "pt-clip-*.mp4")
+		ext := strings.ToLower(filepath.Ext(header.Filename))
+		if ext == "" {
+			ext = ".bin"
+		}
+		tmp, err := os.CreateTemp("", "pt-media-*"+ext)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create temp file"})
 			return
