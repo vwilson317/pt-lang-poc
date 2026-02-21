@@ -13,7 +13,10 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: theme.bg0 },
             animation: 'slide_from_right',
           }}
-        />
+        >
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="clip/[id]" />
+        </Stack>
       </View>
     </GestureHandlerRootView>
   );

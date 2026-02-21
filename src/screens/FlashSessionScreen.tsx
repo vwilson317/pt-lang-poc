@@ -19,6 +19,7 @@ import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
 import { CompletionModal } from '../components/CompletionModal';
 import { StopSessionModal } from '../components/StopSessionModal';
+import { GestureDemoOverlay } from '../components/GestureDemoOverlay';
 import type { Word } from '../types/word';
 import { useSession } from '../state/useSession';
 import { getWordById, DECK_LENGTH } from '../data/words';
@@ -28,12 +29,16 @@ import {
   incrementRunsCount,
   recordWordDontKnow,
   recordWordKnow,
-  getSuggestedSpeedAndConsume,
   getCustomWords,
   saveCustomWords,
   clearCustomWords,
+  getAudioPlaybackRate,
+  setAudioPlaybackRate,
+  cycleAudioPlaybackRate,
+  getHasSeenGestureDemo,
+  setHasSeenGestureDemo,
 } from '../lib/storage';
-import { playWordAudio, RATE_BASELINE } from '../lib/audio';
+import { playWordAudio, stopWordAudio } from '../lib/audio';
 import { theme } from '../theme';
 
 const bgImage = require('../../v1/bg.png');
@@ -173,11 +178,15 @@ export function FlashSessionScreen() {
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
   const [missedCountsById, setMissedCountsById] = React.useState<Record<string, number>>({});
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
+  const [playbackRate, setPlaybackRateState] = React.useState<number>(1.5);
+  const [showGestureDemo, setShowGestureDemo] = React.useState(false);
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userHasEnabledAudioRef = useRef(false);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
   const lastRecordedWrongIdRef = useRef<string | null>(null);
+  const gestureDemoShownRef = useRef(false);
+  const sessionInitRanRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,6 +208,30 @@ export function FlashSessionScreen() {
       setCardCount(MIN_CARDS);
     }
   }, [customWords.length, cardCount]);
+
+  // When session starts: load playback rate and show gesture demo once per app install
+  useEffect(() => {
+    if (!state || sessionInitRanRef.current) return;
+    sessionInitRanRef.current = true;
+    let cancelled = false;
+    getAudioPlaybackRate().then((rate) => {
+      if (!cancelled) setPlaybackRateState(rate);
+    });
+    getHasSeenGestureDemo().then((seen) => {
+      if (cancelled) return;
+      if (!seen) {
+        setShowGestureDemo(true);
+        gestureDemoShownRef.current = true;
+        void setHasSeenGestureDemo();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state]);
+  useEffect(() => {
+    if (!state) sessionInitRanRef.current = false;
+  }, [state]);
 
   const handleAddCustomWords = useCallback(async () => {
     const parsedEntries = parseCustomWordInput(customInput);
@@ -284,6 +317,19 @@ export function FlashSessionScreen() {
     playWordAudio(currentWord, rate);
   }, [currentWord]);
 
+  const handleTapToSkip = useCallback(() => {
+    stopWordAudio();
+    if (state?.uiState !== 'PROMPT') {
+      advanceToNextCard();
+    }
+  }, [state?.uiState, advanceToNextCard]);
+
+  const handleCycleSpeed = useCallback(() => {
+    const next = cycleAudioPlaybackRate(playbackRate);
+    setPlaybackRateState(next);
+    void setAudioPlaybackRate(next);
+  }, [playbackRate]);
+
   const handleSwipeLeft = useCallback(() => {
     if (state?.currentCardId) {
       recordWordDontKnow(state.currentCardId);
@@ -329,7 +375,7 @@ export function FlashSessionScreen() {
     }
   }, [state?.uiState, state?.currentCardId]);
 
-  // Optional autoplay: after first tap, on new card use suggested speed (0.75 once after don't know, or 1.25 1/5 after 3+ know)
+  // Optional autoplay: after first tap, on new card use persisted playback rate
   useEffect(() => {
     if (
       state?.uiState !== 'PROMPT' ||
@@ -337,21 +383,15 @@ export function FlashSessionScreen() {
       !userHasEnabledAudioRef.current
     )
       return;
-    let cancelled = false;
-    getSuggestedSpeedAndConsume(currentWord.id).then((rate) => {
-      if (!cancelled) playWordAudio(currentWord, rate);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [state?.currentCardId, state?.uiState, currentWord]);
+    playWordAudio(currentWord, playbackRate);
+  }, [state?.currentCardId, state?.uiState, currentWord, playbackRate]);
 
-  // Auto-play when revealing "don't know" (hear the word at baseline)
+  // Auto-play when revealing "don't know" (hear the word at current speed)
   useEffect(() => {
     if (state?.uiState === 'REVEAL_DONT_KNOW' && currentWord) {
-      playWordAudio(currentWord, RATE_BASELINE);
+      playWordAudio(currentWord, playbackRate);
     }
-  }, [state?.uiState, currentWord]);
+  }, [state?.uiState, currentWord, playbackRate]);
 
   // When session clears: persist best time and runs count
   useEffect(() => {
@@ -679,9 +719,16 @@ export function FlashSessionScreen() {
           onChooseOption={chooseOption}
           onAdvance={advanceToNextCard}
           onPlayAudio={handlePlayAudio}
-          disabled={state.cleared || stopModalVisible}
+          onTapToSkip={handleTapToSkip}
+          playbackRate={playbackRate}
+          onCycleSpeed={handleCycleSpeed}
+          disabled={state.cleared || stopModalVisible || showGestureDemo}
         />
       </View>
+      <GestureDemoOverlay
+        visible={showGestureDemo}
+        onDismiss={() => setShowGestureDemo(false)}
+      />
       {!state.cleared && !stopModalVisible && (
         <Pressable
           style={({ pressed }) => [

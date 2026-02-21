@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -13,7 +13,6 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import type { Word } from '../types/word';
 import type { UIState } from '../types/session';
 import { theme, cardSurfaceColors, audioButtonColors } from '../theme';
-import { RATE_BASELINE, RATE_DECODE, RATE_CHALLENGE } from '../lib/audio';
 
 const SWIPE_THRESHOLD = 120;
 const springConfig = { damping: 18, stiffness: 120 };
@@ -24,6 +23,14 @@ const customCardSurfaceColors = [
   'rgba(255,96,163,0.16)',
 ] as const;
 const customAudioButtonColors = ['#FF8E53', '#FF5D9B'] as const;
+
+function wordMetadataLine(word: Word): string | null {
+  const parts: string[] = [];
+  if (word.wordType) parts.push(word.wordType.toUpperCase());
+  if (word.gender) parts.push(word.gender.toUpperCase());
+  if (word.verbLabel) parts.push(word.verbLabel);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
 
 type FlashCardProps = {
   word: Word | null;
@@ -36,11 +43,11 @@ type FlashCardProps = {
   onChooseOption: (index: number) => void;
   onAdvance: () => void;
   onPlayAudio?: (rate: number) => void;
+  onTapToSkip?: () => void;
+  playbackRate?: number;
+  onCycleSpeed?: () => void;
   disabled?: boolean;
 };
-
-const DOUBLE_TAP_MS = 300;
-const SPEED_INDICATOR_MS = 600;
 
 export function FlashCard({
   word,
@@ -53,58 +60,17 @@ export function FlashCard({
   onChooseOption,
   onAdvance,
   onPlayAudio,
+  onTapToSkip,
+  playbackRate = 1.5,
+  onCycleSpeed,
   disabled = false,
 }: FlashCardProps) {
   const translateX = useSharedValue(0);
   const cardWidth = 320;
 
-  const [speedIndicator, setSpeedIndicator] = useState<number | null>(null);
-  const speedIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastTapTime = useRef<number>(0);
-
-  const clearSpeedIndicator = useCallback(() => {
-    if (speedIndicatorTimer.current) {
-      clearTimeout(speedIndicatorTimer.current);
-      speedIndicatorTimer.current = null;
-    }
-    setSpeedIndicator(null);
-  }, []);
-
-  const showSpeedThenClear = useCallback((rate: number) => {
-    if (rate === RATE_BASELINE) return;
-    setSpeedIndicator(rate);
-    if (speedIndicatorTimer.current) clearTimeout(speedIndicatorTimer.current);
-    speedIndicatorTimer.current = setTimeout(clearSpeedIndicator, SPEED_INDICATOR_MS);
-  }, [clearSpeedIndicator]);
-
-  const handlePlayAtRate = useCallback(
-    (rate: number) => {
-      onPlayAudio?.(rate);
-      showSpeedThenClear(rate);
-    },
-    [onPlayAudio, showSpeedThenClear]
-  );
-
-  const handlePress = useCallback(() => {
-    const now = Date.now();
-    const isDoubleTap = now - lastTapTime.current <= DOUBLE_TAP_MS;
-    lastTapTime.current = now;
-    if (isDoubleTap) {
-      handlePlayAtRate(RATE_CHALLENGE);
-    } else {
-      handlePlayAtRate(RATE_BASELINE);
-    }
-  }, [handlePlayAtRate]);
-
-  const handleLongPress = useCallback(() => {
-    handlePlayAtRate(RATE_DECODE);
-  }, [handlePlayAtRate]);
-
-  useEffect(() => {
-    return () => {
-      if (speedIndicatorTimer.current) clearTimeout(speedIndicatorTimer.current);
-    };
-  }, []);
+  const handlePlayAtRate = useCallback(() => {
+    onPlayAudio?.(playbackRate);
+  }, [onPlayAudio, playbackRate]);
 
   useEffect(() => {
     if (uiState === 'REVEAL_DONT_KNOW') {
@@ -159,6 +125,7 @@ export function FlashCard({
   const showChoices = uiState === 'CHOICES' || uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
   const isFeedback = uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
   const isCustomWord = Boolean(word.isCustom);
+  const metadataLine = wordMetadataLine(word);
 
   return (
     <GestureDetector gesture={panGesture}>
@@ -169,42 +136,58 @@ export function FlashCard({
           colors={[...(isCustomWord ? customCardSurfaceColors : cardSurfaceColors)]}
           style={styles.cardGradient}
         >
-          <View style={styles.inner}>
-            {isCustomWord && (
-              <View style={styles.customBadge}>
-                <Text style={styles.customBadgeText}>Custom</Text>
-              </View>
-            )}
-            <Text style={styles.pt}>{word.pt}</Text>
-            {word.pronHintEn != null && (
-              <Text style={styles.pronHint}>{word.pronHintEn}</Text>
-            )}
-
-            {uiState === 'PROMPT' && (
-              <Pressable
-                style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
-                onPress={handlePress}
-                onLongPress={handleLongPress}
-                disabled={disabled}
-              >
-                <LinearGradient
-                  colors={[...(isCustomWord ? customAudioButtonColors : audioButtonColors)]}
-                  style={StyleSheet.absoluteFill}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
-                <View style={styles.audioButtonContent}>
-                  {speedIndicator != null ? (
-                    <Text style={styles.speedLabel}>{speedIndicator}x</Text>
-                  ) : (
-                    <>
-                      <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
-                      <Text style={styles.audioLabel}>Tap to play</Text>
-                    </>
-                  )}
+          <Pressable
+            style={styles.innerPressable}
+            onPress={onTapToSkip}
+            disabled={disabled}
+          >
+            <View style={styles.inner}>
+              {isCustomWord && (
+                <View style={styles.customBadge}>
+                  <Text style={styles.customBadgeText}>Custom</Text>
                 </View>
-              </Pressable>
-            )}
+              )}
+              {playbackRate != null && onCycleSpeed && uiState === 'PROMPT' && (
+                <Pressable
+                  style={styles.speedBadge}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onCycleSpeed();
+                  }}
+                  disabled={disabled}
+                >
+                  <Text style={styles.speedBadgeText}>{playbackRate}x</Text>
+                </Pressable>
+              )}
+              <Text style={styles.pt}>{word.pt}</Text>
+              {metadataLine != null && (
+                <Text style={styles.wordMetadata}>{metadataLine}</Text>
+              )}
+              {word.pronHintEn != null && (
+                <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+              )}
+
+              {uiState === 'PROMPT' && (
+                <Pressable
+                  style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    handlePlayAtRate();
+                  }}
+                  disabled={disabled}
+                >
+                  <LinearGradient
+                    colors={[...(isCustomWord ? customAudioButtonColors : audioButtonColors)]}
+                    style={StyleSheet.absoluteFill}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  />
+                  <View style={styles.audioButtonContent}>
+                    <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
+                    <Text style={styles.audioLabel}>Tap to play</Text>
+                  </View>
+                </Pressable>
+              )}
 
             {uiState === 'REVEAL_DONT_KNOW' && (
               <View style={styles.reveal}>
@@ -218,31 +201,32 @@ export function FlashCard({
               </View>
             )}
 
-            {showChoices && (
-              <View style={styles.choices}>
-                {choiceOptions.map((opt, i) => {
-                  const isCorrect = i === correctChoiceIndex;
-                  const isSelected = i === selectedChoiceIndex;
-                  const optionStyle = [
-                    styles.option,
-                    isFeedback && isCorrect && styles.optionCorrect,
-                    isFeedback && isSelected && !isCorrect && styles.optionWrong,
-                  ];
-                  return (
-                    <TouchableOpacity
-                      key={i}
-                      style={optionStyle}
-                      onPress={() => !isFeedback && onChooseOption(i)}
-                      disabled={disabled || isFeedback}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.optionText}>{opt}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </View>
+              {showChoices && (
+                <View style={styles.choices}>
+                  {choiceOptions.map((opt, i) => {
+                    const isCorrect = i === correctChoiceIndex;
+                    const isSelected = i === selectedChoiceIndex;
+                    const optionStyle = [
+                      styles.option,
+                      isFeedback && isCorrect && styles.optionCorrect,
+                      isFeedback && isSelected && !isCorrect && styles.optionWrong,
+                    ];
+                    return (
+                      <TouchableOpacity
+                        key={i}
+                        style={optionStyle}
+                        onPress={() => !isFeedback && onChooseOption(i)}
+                        disabled={disabled || isFeedback}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.optionText}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          </Pressable>
         </LinearGradient>
       </Animated.View>
     </GestureDetector>
@@ -270,8 +254,27 @@ const styles = StyleSheet.create({
     padding: 24,
     borderRadius: theme.cardRadius,
   },
+  innerPressable: {
+    flex: 1,
+  },
   inner: {
     alignItems: 'center',
+  },
+  speedBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  speedBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.textPrimary,
   },
   customBadge: {
     borderRadius: 999,
@@ -302,8 +305,17 @@ const styles = StyleSheet.create({
     fontWeight: theme.wordWeight,
     letterSpacing: theme.wordLetterSpacing,
     color: theme.textPrimary,
-    marginBottom: 16,
+    marginBottom: 8,
     textAlign: 'center',
+  },
+  wordMetadata: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 12,
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   audioButton: {
     minHeight: theme.ctaMinHeight,
@@ -322,11 +334,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-  },
-  speedLabel: {
-    fontSize: theme.buttonLabelSize,
-    fontWeight: theme.buttonLabelWeight,
-    color: theme.textPrimary,
   },
   audioLabel: {
     fontSize: theme.buttonLabelSize,
