@@ -9,7 +9,8 @@ export type SessionState = {
   queue: string[];
   correctSet: Set<string>;
   rightCount: number;
-  wrongCount: number;
+  incorrectCount: number;
+  skippedCount: number;
   deckCount: number;
   startedAt: number;
   cleared: boolean;

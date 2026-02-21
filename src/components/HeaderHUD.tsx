@@ -5,7 +5,8 @@ import { theme } from '../theme';
 
 type HeaderHUDProps = {
   rightCount: number;
-  wrongCount: number;
+  incorrectCount: number;
+  skippedCount: number;
   remaining: number;
   startedAt: number | null;
   frozen?: boolean;
@@ -24,7 +25,8 @@ function formatElapsed(ms: number): string {
 
 export function HeaderHUD({
   rightCount,
-  wrongCount,
+  incorrectCount,
+  skippedCount,
   remaining,
   startedAt,
   frozen = false,
@@ -49,7 +51,11 @@ export function HeaderHUD({
           </View>
           <View style={styles.pill}>
             <FontAwesome5 name="times-circle" size={theme.iconSizeHud} color={theme.bad} solid />
-            <Text style={styles.count}>{wrongCount}</Text>
+            <Text style={styles.count}>{incorrectCount}</Text>
+          </View>
+          <View style={styles.pill}>
+            <FontAwesome5 name="forward" size={theme.iconSizeHud} color={theme.info} solid />
+            <Text style={styles.count}>{skippedCount}</Text>
           </View>
         </View>
         <View style={styles.middleCluster}>

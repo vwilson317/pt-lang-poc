@@ -176,7 +176,8 @@ export function FlashSessionScreen() {
   const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
   const [modalDismissed, setModalDismissed] = React.useState(false);
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
-  const [missedCountsById, setMissedCountsById] = React.useState<Record<string, number>>({});
+  const [skippedCountsById, setSkippedCountsById] = React.useState<Record<string, number>>({});
+  const [incorrectCountsById, setIncorrectCountsById] = React.useState<Record<string, number>>({});
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
   const [playbackRate, setPlaybackRateState] = React.useState<number>(0.5);
   const [showGestureDemo, setShowGestureDemo] = React.useState(false);
@@ -184,7 +185,7 @@ export function FlashSessionScreen() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userHasEnabledAudioRef = useRef(false);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
-  const lastRecordedWrongIdRef = useRef<string | null>(null);
+  const lastRecordedIncorrectIdRef = useRef<string | null>(null);
   const gestureDemoShownRef = useRef(false);
   const sessionInitRanRef = useRef(false);
 
@@ -307,8 +308,12 @@ export function FlashSessionScreen() {
     })();
   }, [showCustomEditor]);
 
-  const recordSessionMiss = useCallback((wordId: string) => {
-    setMissedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
+  const recordSessionSkip = useCallback((wordId: string) => {
+    setSkippedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
+  }, []);
+
+  const recordSessionIncorrect = useCallback((wordId: string) => {
+    setIncorrectCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
   }, []);
 
   const handlePlayAudio = useCallback((rate: number) => {
@@ -333,10 +338,10 @@ export function FlashSessionScreen() {
   const handleSwipeLeft = useCallback(() => {
     if (state?.currentCardId) {
       recordWordDontKnow(state.currentCardId);
-      recordSessionMiss(state.currentCardId);
+      recordSessionSkip(state.currentCardId);
     }
     swipeLeft();
-  }, [recordSessionMiss, swipeLeft, state?.currentCardId]);
+  }, [recordSessionSkip, swipeLeft, state?.currentCardId]);
 
   // Record "Know" once per card when feedback is correct
   useEffect(() => {
@@ -357,21 +362,21 @@ export function FlashSessionScreen() {
     }
   }, [state?.uiState, state?.currentCardId]);
 
-  // Record a miss once per card when answer feedback is wrong.
+  // Record an incorrect guess once per card when answer feedback is wrong.
   useEffect(() => {
     if (
       state?.uiState === 'FEEDBACK_WRONG' &&
       state?.currentCardId &&
-      state.currentCardId !== lastRecordedWrongIdRef.current
+      state.currentCardId !== lastRecordedIncorrectIdRef.current
     ) {
-      lastRecordedWrongIdRef.current = state.currentCardId;
-      recordSessionMiss(state.currentCardId);
+      lastRecordedIncorrectIdRef.current = state.currentCardId;
+      recordSessionIncorrect(state.currentCardId);
     }
-  }, [recordSessionMiss, state?.uiState, state?.currentCardId]);
+  }, [recordSessionIncorrect, state?.uiState, state?.currentCardId]);
 
   useEffect(() => {
     if (state?.uiState === 'PROMPT') {
-      lastRecordedWrongIdRef.current = null;
+      lastRecordedIncorrectIdRef.current = null;
     }
   }, [state?.uiState, state?.currentCardId]);
 
@@ -409,10 +414,11 @@ export function FlashSessionScreen() {
   const handleRunAgain = useCallback(() => {
     setModalDismissed(false);
     setStopModalVisible(false);
-    setMissedCountsById({});
+    setSkippedCountsById({});
+    setIncorrectCountsById({});
     lastClearedRef.current = false;
     lastRecordedCorrectIdRef.current = null;
-    lastRecordedWrongIdRef.current = null;
+    lastRecordedIncorrectIdRef.current = null;
     startNewSession();
   }, [startNewSession]);
 
@@ -424,7 +430,14 @@ export function FlashSessionScreen() {
   const [bestTimeMs, setBestTimeMs] = React.useState<number | null>(null);
 
   const missedWordExportItems = React.useMemo(() => {
-    return Object.entries(missedCountsById)
+    const combinedCountsById: Record<string, number> = {};
+    for (const [id, count] of Object.entries(skippedCountsById)) {
+      combinedCountsById[id] = (combinedCountsById[id] ?? 0) + count;
+    }
+    for (const [id, count] of Object.entries(incorrectCountsById)) {
+      combinedCountsById[id] = (combinedCountsById[id] ?? 0) + count;
+    }
+    return Object.entries(combinedCountsById)
       .map(([id, misses]) => {
         const word = getWordById(id);
         if (!word?.en) return null;
@@ -438,17 +451,18 @@ export function FlashSessionScreen() {
       })
       .filter((item): item is MissedWordExportItem => item != null)
       .sort((a, b) => b.misses - a.misses || a.pt.localeCompare(b.pt));
-  }, [missedCountsById]);
+  }, [incorrectCountsById, skippedCountsById]);
   const uniqueMissCount = missedWordExportItems.length;
 
   const handleStartSession = useCallback(
     (count: number) => {
       setModalDismissed(false);
       setStopModalVisible(false);
-      setMissedCountsById({});
+      setSkippedCountsById({});
+      setIncorrectCountsById({});
       lastClearedRef.current = false;
       lastRecordedCorrectIdRef.current = null;
-      lastRecordedWrongIdRef.current = null;
+      lastRecordedIncorrectIdRef.current = null;
       startSession({ cardCount: count, customWords });
     },
     [customWords, startSession]
@@ -494,10 +508,11 @@ export function FlashSessionScreen() {
     } finally {
       setStopModalVisible(false);
       setModalDismissed(false);
-      setMissedCountsById({});
+      setSkippedCountsById({});
+      setIncorrectCountsById({});
       lastClearedRef.current = false;
       lastRecordedCorrectIdRef.current = null;
-      lastRecordedWrongIdRef.current = null;
+      lastRecordedIncorrectIdRef.current = null;
       stopSession();
     }
   }, [missedWordExportItems, showNativeCopyToast, stopSession, uniqueMissCount]);
@@ -702,7 +717,8 @@ export function FlashSessionScreen() {
     >
       <HeaderHUD
         rightCount={state.rightCount}
-        wrongCount={state.wrongCount}
+        incorrectCount={state.incorrectCount}
+        skippedCount={state.skippedCount}
         remaining={remaining}
         startedAt={state.startedAt}
         frozen={state.cleared || stopModalVisible}

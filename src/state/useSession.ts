@@ -21,7 +21,8 @@ function createInitialStateFromDeck(deck: Word[]): SessionState {
     queue,
     correctSet: new Set(),
     rightCount: 0,
-    wrongCount: 0,
+    incorrectCount: 0,
+    skippedCount: 0,
     deckCount: queue.length,
     startedAt: Date.now(),
     cleared: isEmpty,
@@ -138,7 +139,7 @@ export function useSession() {
       return {
         ...prev,
         queue: newQueue,
-        wrongCount: prev.wrongCount + 1,
+        skippedCount: prev.skippedCount + 1,
         uiState: 'REVEAL_DONT_KNOW',
       };
     });
@@ -219,7 +220,7 @@ export function useSession() {
       return {
         ...prev,
         queue: newQueue,
-        wrongCount: prev.wrongCount + 1,
+        incorrectCount: prev.incorrectCount + 1,
         uiState: 'FEEDBACK_WRONG',
         selectedChoiceIndex: choiceIndex,
         correctChoiceIndex: correctIndex,
