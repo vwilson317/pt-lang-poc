@@ -6,7 +6,7 @@ import { Audio, type AVPlaybackStatus } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { createJob, getJobResult, getJobStatus } from '../lib/jobsApi';
 import { addCards, getSelectedDeckId, upsertClip } from '../lib/v11Storage';
-import type { ClipStatus, FlashCardRecord } from '../types/v11';
+import type { ClipSegment, ClipStatus, FlashCardRecord } from '../types/v11';
 import { makeId } from '../lib/id';
 import {
   buildWhatsAppImport,
@@ -19,6 +19,7 @@ type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
 type ImportKind = 'media' | 'whatsapp';
 type ImportDestination = 'current' | 'new';
+type WhatsAppCardOutput = 'sentence' | 'word';
 
 function normalizedAssetName(asset: PickerAsset): string {
   return (asset.name ?? '').trim().toLowerCase();
@@ -26,6 +27,46 @@ function normalizedAssetName(asset: PickerAsset): string {
 
 function formatPhoneForDisplay(value: string): string {
   return value.startsWith('+') ? value : `+${value}`;
+}
+
+function sanitizeTokenForCardId(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function buildWordCardsFromSegments(
+  segments: ClipSegment[],
+  deckId: string,
+  clipId: string
+): FlashCardRecord[] {
+  const seen = new Set<string>();
+  const cards: FlashCardRecord[] = [];
+  for (const segment of segments) {
+    const tokens = segment.textOriginal.match(/[A-Za-zÀ-ÖØ-öø-ÿ']+/g) ?? [];
+    for (const token of tokens) {
+      const normalized = token.trim().toLocaleLowerCase();
+      if (normalized.length < 2) continue;
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      const slug = sanitizeTokenForCardId(normalized);
+      if (!slug) continue;
+      cards.push({
+        id: `word-${clipId}-${slug}`,
+        deckId,
+        cardType: 'word',
+        front: normalized,
+        // WhatsApp import currently has no reliable EN translation per token.
+        back: normalized,
+        sourceClipId: clipId,
+        createdAt: Date.now() + cards.length,
+      });
+    }
+  }
+  return cards;
 }
 
 function scoreZipTextEntry(entryName: string): number {
@@ -101,6 +142,7 @@ export function ImportTabScreen() {
   const [asset, setAsset] = useState<PickerAsset | null>(null);
   const [importKind, setImportKind] = useState<ImportKind>('media');
   const [importDestination, setImportDestination] = useState<ImportDestination>('current');
+  const [whatsAppCardOutput, setWhatsAppCardOutput] = useState<WhatsAppCardOutput>('sentence');
   const [includeOtherParticipants, setIncludeOtherParticipants] = useState(false);
   const [whatsAppTextCache, setWhatsAppTextCache] = useState<string | null>(null);
   const [availableSenderPhones, setAvailableSenderPhones] = useState<WhatsAppSenderPhone[]>([]);
@@ -305,6 +347,7 @@ export function ImportTabScreen() {
     setWhatsAppTextCache(null);
     setAvailableSenderPhones([]);
     setSelectedSenderPhones([]);
+    setWhatsAppCardOutput('sentence');
     setIncludeOtherParticipants(false);
     setAnalyzingWhatsAppFile(false);
 
@@ -373,7 +416,9 @@ export function ImportTabScreen() {
 
       const clipId = makeId('clip-wa');
       setProgress(65);
-      setProgressLabel('Building sentence cards...');
+      setProgressLabel(
+        whatsAppCardOutput === 'sentence' ? 'Building sentence cards...' : 'Building word cards...'
+      );
 
       const clip = {
         id: clipId,
@@ -387,27 +432,43 @@ export function ImportTabScreen() {
 
       await upsertClip(clip);
       const deckId = await getSelectedDeckId();
-      const sentenceCards: FlashCardRecord[] = clip.segments.map((segment) => ({
-        id: `sentence-${clip.id}-${segment.id}`,
-        deckId,
-        cardType: 'sentence',
-        front: segment.textOriginal,
-        back: segment.textTranslated,
-        sourceClipId: clip.id,
-        sourceSegmentId: segment.id,
-        createdAt: Date.now(),
-      }));
-      await addCards(sentenceCards);
-      setImportedCardsCount(sentenceCards.length);
+      const generatedCards: FlashCardRecord[] =
+        whatsAppCardOutput === 'sentence'
+          ? clip.segments.map((segment) => ({
+              id: `sentence-${clip.id}-${segment.id}`,
+              deckId,
+              cardType: 'sentence',
+              front: segment.textOriginal,
+              back: segment.textTranslated,
+              sourceClipId: clip.id,
+              sourceSegmentId: segment.id,
+              createdAt: Date.now(),
+            }))
+          : buildWordCardsFromSegments(clip.segments, deckId, clip.id);
+      if (generatedCards.length === 0) {
+        setState('FAILED');
+        setErrorMessage(
+          whatsAppCardOutput === 'sentence'
+            ? 'No sentence cards were created from this thread.'
+            : 'No word cards were created from this thread.'
+        );
+        return;
+      }
+      await addCards(generatedCards);
+      setImportedCardsCount(generatedCards.length);
       setImportWarning(parsed.warning ?? null);
       setProgress(100);
       setProgressLabel('Complete');
       setState('DONE');
       if (importDestination === 'new') {
-        router.push({
-          pathname: '/(tabs)/practice',
-          params: { mode: 'sentences', clipId: clip.id },
-        });
+        if (whatsAppCardOutput === 'sentence') {
+          router.push({
+            pathname: '/(tabs)/practice',
+            params: { mode: 'sentences', clipId: clip.id },
+          });
+        } else {
+          router.push('/(tabs)/practice');
+        }
       }
     } catch (error) {
       setState('FAILED');
@@ -420,6 +481,7 @@ export function ImportTabScreen() {
     importDestination,
     includeOtherParticipants,
     analyzingWhatsAppFile,
+    whatsAppCardOutput,
     readWhatsAppTextAsset,
     router,
     selectedSenderPhones,
@@ -528,6 +590,26 @@ export function ImportTabScreen() {
                 <Text style={styles.smallToggleLabel}>Include all</Text>
               </Pressable>
             </View>
+            <Text style={styles.optionLabel}>Create cards as</Text>
+            <View style={styles.toggleRow}>
+              <Pressable
+                style={[styles.smallToggle, whatsAppCardOutput === 'sentence' && styles.smallToggleActive]}
+                onPress={() => setWhatsAppCardOutput('sentence')}
+              >
+                <Text style={styles.smallToggleLabel}>Sentence cards</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.smallToggle, whatsAppCardOutput === 'word' && styles.smallToggleActive]}
+                onPress={() => setWhatsAppCardOutput('word')}
+              >
+                <Text style={styles.smallToggleLabel}>Word cards</Text>
+              </Pressable>
+            </View>
+            {whatsAppCardOutput === 'word' && (
+              <Text style={styles.helper}>
+                Word cards are generated from unique words in the selected messages.
+              </Text>
+            )}
             <Text style={styles.optionLabel}>Add cards to</Text>
             <View style={styles.toggleRow}>
               <Pressable
@@ -540,7 +622,9 @@ export function ImportTabScreen() {
                 style={[styles.smallToggle, importDestination === 'new' && styles.smallToggleActive]}
                 onPress={() => setImportDestination('new')}
               >
-                <Text style={styles.smallToggleLabel}>New sentence session</Text>
+                <Text style={styles.smallToggleLabel}>
+                  {whatsAppCardOutput === 'sentence' ? 'New sentence session' : 'Practice tab'}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -588,7 +672,10 @@ export function ImportTabScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>{importKind === 'whatsapp' ? 'Thread imported' : 'Media ready'}</Text>
-        <Text style={styles.helper}>Created {importedCardsCount} sentence cards.</Text>
+        <Text style={styles.helper}>
+          Created {importedCardsCount}{' '}
+          {importKind === 'whatsapp' && whatsAppCardOutput === 'word' ? 'word' : 'sentence'} cards.
+        </Text>
         {importWarning && <Text style={styles.warning}>{importWarning}</Text>}
         <View style={styles.row}>
           <Pressable style={styles.primaryButton} onPress={() => router.push('/(tabs)/imports')}>
@@ -603,6 +690,7 @@ export function ImportTabScreen() {
               setErrorMessage(null);
               setImportWarning(null);
               setImportedCardsCount(0);
+              setWhatsAppCardOutput('sentence');
               setIncludeOtherParticipants(false);
               setWhatsAppTextCache(null);
               setAvailableSenderPhones([]);
@@ -631,6 +719,7 @@ export function ImportTabScreen() {
           setErrorMessage(null);
           setImportWarning(null);
           setImportedCardsCount(0);
+          setWhatsAppCardOutput('sentence');
           setIncludeOtherParticipants(false);
           setWhatsAppTextCache(null);
           setAvailableSenderPhones([]);
