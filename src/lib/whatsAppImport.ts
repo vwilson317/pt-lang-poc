@@ -11,6 +11,12 @@ export type WhatsAppImportResult = {
   warning?: string;
 };
 
+export type WhatsAppSenderPhone = {
+  phone: string;
+  senderLabel: string;
+  messageCount: number;
+};
+
 const MEDIA_OMITTED_RE = /(?:<\s*media omitted\s*>|omitiu|omitted|document omitted|audio omitted)/i;
 const SYSTEM_NOISE_RE =
   /(deleted this message|this message was edited|messages and calls are end-to-end encrypted|changed the group description|created group|added|left|joined using this group's invite link)/i;
@@ -47,6 +53,12 @@ function normalizeSenderLabel(value: string): string {
 function isLikelySelfSenderLabel(sender: string): boolean {
   const normalized = normalizeSenderLabel(sender);
   return SELF_SENDER_LABELS.has(normalized);
+}
+
+function asSenderPhoneCandidate(sender: string): string | null {
+  const normalized = normalizePhone(sender);
+  if (normalized.length < 8) return null;
+  return normalized;
 }
 
 function parseLineStart(line: string): { sender: string; text: string } | null {
@@ -124,18 +136,53 @@ function sentenceQualityScore(text: string): number {
   return score;
 }
 
+export function listWhatsAppSenderPhones(rawText: string): WhatsAppSenderPhone[] {
+  const messages = parseWhatsAppMessages(rawText);
+  const byPhone = new Map<string, WhatsAppSenderPhone>();
+  for (const message of messages) {
+    const phone = asSenderPhoneCandidate(message.sender);
+    if (!phone) continue;
+    const existing = byPhone.get(phone);
+    if (existing) {
+      existing.messageCount += 1;
+      continue;
+    }
+    byPhone.set(phone, {
+      phone,
+      senderLabel: message.sender,
+      messageCount: 1,
+    });
+  }
+  return [...byPhone.values()].sort(
+    (left, right) =>
+      right.messageCount - left.messageCount || left.phone.localeCompare(right.phone)
+  );
+}
+
 export function buildWhatsAppImport(
   rawText: string,
-  myPhoneNumber: string,
+  selectedPhoneNumbers: string[],
   includeOtherParticipants: boolean
 ): WhatsAppImportResult {
   const messages = parseWhatsAppMessages(rawText);
-  const mineByPhone = messages.filter((message) => isSamePhone(message.sender, myPhoneNumber));
+  const normalizedSelectedPhones = Array.from(
+    new Set(
+      selectedPhoneNumbers
+        .map((value) => normalizePhone(value))
+        .filter((value) => value.length >= 8)
+    )
+  );
+  const mineByPhone =
+    normalizedSelectedPhones.length > 0
+      ? messages.filter((message) =>
+          normalizedSelectedPhones.some((phone) => isSamePhone(message.sender, phone))
+        )
+      : [];
   const mineBySenderLabel =
-    mineByPhone.length > 0
-      ? mineByPhone
-      : messages.filter((message) => isLikelySelfSenderLabel(message.sender));
-  const mine = mineBySenderLabel;
+    normalizedSelectedPhones.length === 0
+      ? messages.filter((message) => isLikelySelfSenderLabel(message.sender))
+      : [];
+  const mine = mineByPhone.length > 0 ? mineByPhone : mineBySenderLabel;
   const usedFallbackAllParticipants =
     !includeOtherParticipants && mine.length === 0 && messages.length > 0;
   const base =
@@ -170,14 +217,39 @@ export function buildWhatsAppImport(
 
   const warningBits: string[] = [];
   if (!messages.length) warningBits.push('No WhatsApp messages were recognized in this file.');
-  if (!mineByPhone.length && !includeOtherParticipants) {
+  if (!mineByPhone.length && !includeOtherParticipants && normalizedSelectedPhones.length > 0) {
     if (usedFallbackAllParticipants) {
       warningBits.push(
-        'No messages matched your phone number, so we used all participant messages from this thread.'
+        'No messages matched the selected phone numbers, so we used all participant messages from this thread.'
       );
     } else {
-      warningBits.push('No messages matched your phone number. Try adding country code.');
+      warningBits.push('No messages matched the selected phone numbers.');
     }
+  }
+  if (
+    !includeOtherParticipants &&
+    normalizedSelectedPhones.length === 0 &&
+    !mine.length &&
+    usedFallbackAllParticipants
+  ) {
+    warningBits.push(
+      'No participant phone numbers were selected, so we used all participant messages from this thread.'
+    );
+  }
+  if (
+    !includeOtherParticipants &&
+    normalizedSelectedPhones.length === 0 &&
+    !mine.length &&
+    !usedFallbackAllParticipants
+  ) {
+    warningBits.push(
+      'No participant phone numbers were selected. Select one or more numbers or import all participants.'
+    );
+  }
+  if (!includeOtherParticipants && normalizedSelectedPhones.length === 0 && mine.length > 0) {
+    warningBits.push(
+      'No phone number selected; imported messages matched sender labels such as "You".'
+    );
   }
   const droppedCount = sentenceCandidates.length - deduped.length;
   if (droppedCount > 0) warningBits.push(`${droppedCount} low-quality or duplicate lines were skipped.`);
