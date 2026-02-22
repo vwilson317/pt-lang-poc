@@ -44,6 +44,18 @@ export const BUILT_IN_PHRASES: BuiltInPhrase[] = [
     pt: 'O que traz voce aqui?',
     fr: "Qu'est-ce qui vous amene ici ?",
   },
+  {
+    id: 'speak-better-than-hear',
+    en: 'I can speak a little better than I can hear Portuguese.',
+    pt: 'Eu falo um pouco melhor do que entendo portugues.',
+    fr: 'Je parle un peu mieux que je comprends le portugais.',
+  },
+  {
+    id: 'portuguese-level-year-old',
+    en: 'My Portuguese is at the level of a one-year-old.',
+    pt: 'Meu portugues esta no nivel de uma crianca de um ano.',
+    fr: "Mon portugais est au niveau d'un enfant d'un an.",
+  },
 ];
 
 const BUILT_IN_PHRASES_BY_ID = BUILT_IN_PHRASES.reduce<Record<string, BuiltInPhrase>>(
