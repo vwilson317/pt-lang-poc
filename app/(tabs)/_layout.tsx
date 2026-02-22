@@ -51,6 +51,13 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <FontAwesome5 name="layer-group" size={size} color={color} solid />,
         }}
       />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color, size }) => <FontAwesome5 name="cog" size={size} color={color} solid />,
+        }}
+      />
     </Tabs>
   );
 }
