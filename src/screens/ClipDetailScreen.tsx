@@ -42,6 +42,7 @@ export function ClipDetailScreen({ clipId }: Props) {
   }, []);
 
   const studyPack = useMemo(() => (clip ? buildStudyPack(clip) : ''), [clip]);
+  const importCardTypeLabel = clip?.importCardType === 'word' ? 'Words' : 'Sentences';
 
   if (!clip) {
     return (
@@ -62,7 +63,7 @@ export function ClipDetailScreen({ clipId }: Props) {
 
       <Text style={styles.meta}>
         {new Date(clip.createdAt).toLocaleString()} · {clip.sourceLanguage.toUpperCase()}→
-        {clip.targetLanguage.toUpperCase()}
+        {clip.targetLanguage.toUpperCase()} · Cards: {importCardTypeLabel}
       </Text>
 
       <View style={styles.actionRow}>
@@ -80,11 +81,13 @@ export function ClipDetailScreen({ clipId }: Props) {
           onPress={() =>
             router.push({
               pathname: '/(tabs)/practice',
-              params: { mode: 'sentences', clipId: clip.id },
+              params: { mode: clip.importCardType === 'word' ? 'words' : 'sentences', clipId: clip.id },
             })
           }
         >
-          <Text style={styles.primaryLabel}>Practice Sentences</Text>
+          <Text style={styles.primaryLabel}>
+            {clip.importCardType === 'word' ? 'Practice Words' : 'Practice Sentences'}
+          </Text>
         </Pressable>
       </View>
 
