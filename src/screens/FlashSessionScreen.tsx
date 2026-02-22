@@ -198,6 +198,7 @@ export function FlashSessionScreen() {
   const lastRecordedIncorrectIdRef = useRef<string | null>(null);
   const gestureDemoShownRef = useRef(false);
   const sessionInitRanRef = useRef(false);
+  const hasHydratedLanguageRef = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -205,10 +206,35 @@ export function FlashSessionScreen() {
       void getPracticeLanguage()
         .then(async (language) => {
           if (cancelled) return;
+          const didLanguageChange =
+            hasHydratedLanguageRef.current && language !== practiceLanguage;
           setPracticeLanguage(language);
           const words = await getCustomWords(language);
           if (cancelled) return;
           setCustomWords(words);
+          if (didLanguageChange) {
+            setModalDismissed(false);
+            setStopModalVisible(false);
+            setSkippedCountsById({});
+            setIncorrectCountsById({});
+            lastClearedRef.current = false;
+            lastRecordedCorrectIdRef.current = null;
+            lastRecordedIncorrectIdRef.current = null;
+            startSession({
+              cardCount: Math.round(cardCount),
+              customWords: words,
+              language,
+            });
+            const nextLanguageLabel = getPracticeLanguageLabel(language);
+            setToastMessage(
+              `Language switched to ${nextLanguageLabel}. Started a new session.`
+            );
+            if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+            toastTimerRef.current = setTimeout(() => {
+              setToastMessage(null);
+            }, 2400);
+          }
+          hasHydratedLanguageRef.current = true;
         })
         .finally(() => {
           if (!cancelled) setCustomWordsLoaded(true);
@@ -216,7 +242,7 @@ export function FlashSessionScreen() {
       return () => {
         cancelled = true;
       };
-    }, [])
+    }, [cardCount, practiceLanguage, startSession])
   );
 
   useEffect(() => {
@@ -520,17 +546,12 @@ export function FlashSessionScreen() {
   const showNativeCopyToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
       ToastAndroid.show(message, ToastAndroid.SHORT);
-      return;
     }
-    if (Platform.OS === 'web') {
-      setToastMessage(message);
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      toastTimerRef.current = setTimeout(() => {
-        setToastMessage(null);
-      }, 2200);
-      return;
-    }
-    Alert.alert('Copied', message);
+    setToastMessage(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2200);
   }, []);
 
   const handleStopAndCopy = useCallback(async () => {
@@ -742,7 +763,7 @@ export function FlashSessionScreen() {
             <FontAwesome5 name="plus" size={18} color={theme.textPrimary} solid />
           </Pressable>
         </View>
-        {Platform.OS === 'web' && toastMessage && (
+        {toastMessage && (
           <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
             <View style={styles.webToast}>
               <Text style={styles.webToastText}>{toastMessage}</Text>
@@ -778,7 +799,6 @@ export function FlashSessionScreen() {
           selectedChoiceIndex={state.selectedChoiceIndex}
           onSwipeLeft={handleSwipeLeft}
           onSwipeRight={swipeRight}
-          onSwipeUp={swipeUp}
           onChooseOption={chooseOption}
           onAdvance={advanceToNextCard}
           onPlayAudio={handlePlayAudio}
@@ -850,7 +870,7 @@ export function FlashSessionScreen() {
         onResume={handleResumeSession}
         onStopAndCopy={handleStopAndCopy}
         />
-        {Platform.OS === 'web' && toastMessage && (
+      {toastMessage && (
           <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
             <View style={styles.webToast}>
               <Text style={styles.webToastText}>{toastMessage}</Text>

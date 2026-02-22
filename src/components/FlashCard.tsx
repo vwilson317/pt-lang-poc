@@ -15,7 +15,6 @@ import type { UIState } from '../types/session';
 import { theme, cardSurfaceColors, audioButtonColors } from '../theme';
 
 const SWIPE_THRESHOLD = 120;
-const SWIPE_UP_THRESHOLD = 100;
 const springConfig = { damping: 18, stiffness: 120 };
 /** Time to show the "Don't know" reveal (word + translation) before advancing. */
 const REVEAL_DONT_KNOW_MS = 1800;
@@ -50,7 +49,6 @@ type FlashCardProps = {
   selectedChoiceIndex?: number;
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
-  onSwipeUp: () => void;
   onChooseOption: (index: number) => void;
   onAdvance: () => void;
   onPlayAudio?: (rate: number) => void;
@@ -68,7 +66,6 @@ export function FlashCard({
   selectedChoiceIndex,
   onSwipeLeft,
   onSwipeRight,
-  onSwipeUp,
   onChooseOption,
   onAdvance,
   onPlayAudio,
@@ -110,14 +107,7 @@ export function FlashCard({
     .onEnd((e) => {
       const goLeft = translateX.value < -SWIPE_THRESHOLD || e.velocityX < -300;
       const goRight = translateX.value > SWIPE_THRESHOLD || e.velocityX > 300;
-      const goUp = translateY.value < -SWIPE_UP_THRESHOLD || e.velocityY < -300;
-      if (goUp) {
-        translateY.value = withTiming(-cardHeight * 1.2, { duration: 200 }, () => {
-          runOnJS(onSwipeUp)();
-          translateX.value = 0;
-          translateY.value = 0;
-        });
-      } else if (goLeft) {
+      if (goLeft) {
         translateX.value = withTiming(-cardWidth * 1.2, { duration: 200 }, () => {
           runOnJS(onSwipeLeft)();
           translateX.value = 0;
