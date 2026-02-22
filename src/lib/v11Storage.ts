@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ClipRecord, Deck, DeckCounts, FlashCardRecord } from '../types/v11';
+import { BUILT_IN_PHRASES } from '../data/phrases';
 
 const KEY_V11_INITIALIZED = 'v11:initialized';
 const KEY_DECKS = 'v11:decks';
@@ -105,7 +106,8 @@ export async function getDeckCounts(deckId: string): Promise<DeckCounts> {
   const sentence = cards.filter((card) => card.cardType === 'sentence').length;
   const word = cards.filter((card) => card.cardType === 'word').length;
   return {
-    total: cards.length,
+    // Keep deck metrics focused on words/sentences until phrase stats are added.
+    total: word + sentence,
     word,
     sentence,
   };
@@ -133,6 +135,37 @@ export async function getSentenceCards(deckId: string, sourceClipId?: string): P
   const cards = await getCardsByDeck(deckId);
   return cards.filter((card) => {
     if (card.cardType !== 'sentence') return false;
+    if (!sourceClipId) return true;
+    return card.sourceClipId === sourceClipId;
+  });
+}
+
+export async function ensureDefaultPhraseCards(deckId: string): Promise<void> {
+  const cards = await getCardsByDeck(deckId);
+  const hasPhraseById = new Set(
+    cards
+      .filter((card) => card.cardType === 'phrase' && card.phraseId)
+      .map((card) => card.phraseId as string)
+  );
+  const seedTs = nowMs();
+  const nextCards: FlashCardRecord[] = BUILT_IN_PHRASES.filter(
+    (phrase) => !hasPhraseById.has(phrase.id)
+  ).map((phrase, index) => ({
+    id: `phrase-${deckId}-${phrase.id}`,
+    deckId,
+    cardType: 'phrase',
+    front: phrase.pt,
+    back: phrase.en,
+    phraseId: phrase.id,
+    createdAt: seedTs + index,
+  }));
+  await addCards(nextCards);
+}
+
+export async function getPhraseCards(deckId: string, sourceClipId?: string): Promise<FlashCardRecord[]> {
+  const cards = await getCardsByDeck(deckId);
+  return cards.filter((card) => {
+    if (card.cardType !== 'phrase') return false;
     if (!sourceClipId) return true;
     return card.sourceClipId === sourceClipId;
   });
