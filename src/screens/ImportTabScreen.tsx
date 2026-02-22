@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import JSZip from 'jszip';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { createJob, getJobResult, getJobStatus } from '../lib/jobsApi';
@@ -14,6 +15,34 @@ type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
 type ImportKind = 'media' | 'whatsapp';
 type ImportDestination = 'current' | 'new';
+
+function normalizedAssetName(asset: PickerAsset): string {
+  return (asset.name ?? '').trim().toLowerCase();
+}
+
+function scoreZipTextEntry(entryName: string): number {
+  const normalized = entryName.toLowerCase().replace(/\\/g, '/');
+  const baseName = normalized.split('/').at(-1) ?? normalized;
+  let score = 0;
+  if (baseName === '_chat.txt') score += 100;
+  if (baseName === 'chat.txt') score += 90;
+  if (baseName.includes('chat')) score += 35;
+  if (baseName.includes('whatsapp')) score += 20;
+  if (normalized.includes('/')) score -= 2;
+  return score;
+}
+
+function pickZipTextEntry(zip: JSZip) {
+  const textEntries = zip
+    .file(/\.txt$/i)
+    .filter((entry) => !entry.dir && !entry.name.toLowerCase().startsWith('__macosx/'));
+  if (textEntries.length === 0) return undefined;
+  return [...textEntries].sort((left, right) => {
+    const scoreDiff = scoreZipTextEntry(right.name) - scoreZipTextEntry(left.name);
+    if (scoreDiff !== 0) return scoreDiff;
+    return left.name.localeCompare(right.name);
+  })[0];
+}
 
 function normalizeDurationMs(value: number | null | undefined): number | null {
   if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return null;
@@ -126,11 +155,23 @@ export function ImportTabScreen() {
   const isImage = Boolean(asset?.mimeType?.startsWith('image/'));
 
   const isTextAsset = useCallback((selected: PickerAsset): boolean => {
-    const lowerName = (selected.name ?? '').toLowerCase();
+    const lowerName = normalizedAssetName(selected);
     if (lowerName.endsWith('.txt')) return true;
     const mime = (selected.mimeType ?? '').toLowerCase();
     return mime.includes('text/plain') || mime.includes('text');
   }, []);
+
+  const isZipAsset = useCallback((selected: PickerAsset): boolean => {
+    const lowerName = normalizedAssetName(selected);
+    if (lowerName.endsWith('.zip')) return true;
+    const mime = (selected.mimeType ?? '').toLowerCase();
+    return mime.includes('application/zip') || mime.includes('zip');
+  }, []);
+
+  const isWhatsAppAsset = useCallback(
+    (selected: PickerAsset): boolean => isTextAsset(selected) || isZipAsset(selected),
+    [isTextAsset, isZipAsset]
+  );
 
   const readTextAsset = useCallback(async (selected: PickerAsset): Promise<string> => {
     if (selected.file instanceof File) {
@@ -149,7 +190,7 @@ export function ImportTabScreen() {
       const xhr = new XMLHttpRequest();
       xhr.open('GET', selected.uri);
       xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
+        if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 0) {
           resolve(xhr.responseText ?? '');
           return;
         }
@@ -160,6 +201,61 @@ export function ImportTabScreen() {
     });
   }, []);
 
+  const readBinaryAsset = useCallback(async (selected: PickerAsset): Promise<ArrayBuffer> => {
+    if (selected.file instanceof File) {
+      return selected.file.arrayBuffer();
+    }
+    try {
+      const response = await fetch(selected.uri);
+      if (response.ok) {
+        return await response.arrayBuffer();
+      }
+    } catch {
+      // Fall through to XHR.
+    }
+
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', selected.uri);
+      xhr.responseType = 'arraybuffer';
+      xhr.onload = () => {
+        if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 0) {
+          const { response } = xhr;
+          if (response instanceof ArrayBuffer) {
+            resolve(response);
+            return;
+          }
+          reject(new Error('Could not read selected zip file.'));
+          return;
+        }
+        reject(new Error(`Could not read file (${xhr.status}).`));
+      };
+      xhr.onerror = () => reject(new Error('Could not read selected zip file.'));
+      xhr.send();
+    });
+  }, []);
+
+  const readWhatsAppTextAsset = useCallback(
+    async (selected: PickerAsset): Promise<string> => {
+      if (!isZipAsset(selected)) {
+        const text = await readTextAsset(selected);
+        return text.replace(/^\uFEFF/, '');
+      }
+      const zipBuffer = await readBinaryAsset(selected);
+      const zip = await JSZip.loadAsync(zipBuffer);
+      const textEntry = pickZipTextEntry(zip);
+      if (!textEntry) {
+        throw new Error('Zip file does not contain a .txt WhatsApp export.');
+      }
+      const extractedText = await textEntry.async('string');
+      if (!extractedText.trim()) {
+        throw new Error(`"${textEntry.name}" in the zip archive is empty.`);
+      }
+      return extractedText.replace(/^\uFEFF/, '');
+    },
+    [isZipAsset, readBinaryAsset, readTextAsset]
+  );
+
   const pickFile = useCallback(async (kind: ImportKind) => {
     const result = await DocumentPicker.getDocumentAsync({
       type: kind === 'media' ? ['video/*', 'image/*'] : '*/*',
@@ -169,9 +265,9 @@ export function ImportTabScreen() {
     if (result.canceled) return;
     const selected = (result.assets[0] as PickerAsset) ?? null;
     if (!selected) return;
-    if (kind === 'whatsapp' && !isTextAsset(selected)) {
+    if (kind === 'whatsapp' && !isWhatsAppAsset(selected)) {
       setState('FAILED');
-      setErrorMessage('Please choose a WhatsApp .txt export file.');
+      setErrorMessage('Please choose a WhatsApp .txt or .zip export file.');
       return;
     }
     const durationMs = kind === 'media' ? await resolveDurationMs(selected) : null;
@@ -184,7 +280,7 @@ export function ImportTabScreen() {
     setImportWarning(null);
     setImportedCardsCount(0);
     setJobId(null);
-  }, [isTextAsset]);
+  }, [isWhatsAppAsset]);
 
   const startWhatsAppImport = useCallback(async () => {
     if (!asset) return;
@@ -198,10 +294,10 @@ export function ImportTabScreen() {
     setImportWarning(null);
     setState('PROCESSING');
     setProgress(5);
-    setProgressLabel('Reading .txt export...');
+    setProgressLabel('Reading WhatsApp export...');
 
     try {
-      const rawText = await readTextAsset(asset);
+      const rawText = await readWhatsAppTextAsset(asset);
       setProgress(35);
       setProgressLabel('Parsing thread...');
       const parsed = buildWhatsAppImport(rawText, myPhoneNumber, includeOtherParticipants);
@@ -251,10 +347,10 @@ export function ImportTabScreen() {
       }
     } catch (error) {
       setState('FAILED');
-      const fallback = 'Could not import this WhatsApp export. Try another .txt file.';
+      const fallback = 'Could not import this WhatsApp export. Try another .txt or .zip file.';
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
     }
-  }, [asset, importDestination, includeOtherParticipants, myPhoneNumber, readTextAsset, router]);
+  }, [asset, importDestination, includeOtherParticipants, myPhoneNumber, readWhatsAppTextAsset, router]);
 
   const startUpload = useCallback(async () => {
     if (!asset) return;
@@ -288,12 +384,12 @@ export function ImportTabScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>Import Content</Text>
-        <Text style={styles.helper}>Choose media or a WhatsApp .txt thread export.</Text>
+        <Text style={styles.helper}>Choose media or a WhatsApp .txt/.zip thread export.</Text>
         <Pressable style={styles.primaryButton} onPress={() => void pickFile('media')}>
           <Text style={styles.primaryLabel}>Choose Media</Text>
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => void pickFile('whatsapp')}>
-          <Text style={styles.secondaryLabel}>Choose WhatsApp TXT</Text>
+          <Text style={styles.secondaryLabel}>Choose WhatsApp TXT/ZIP</Text>
         </Pressable>
       </View>
     );
@@ -306,7 +402,9 @@ export function ImportTabScreen() {
         <Text style={styles.fileName}>{asset?.name || 'Selected media'}</Text>
         <Text style={styles.helper}>
           {importKind === 'whatsapp'
-            ? 'Type: WhatsApp text export'
+            ? asset && isZipAsset(asset)
+              ? 'Type: WhatsApp zip export'
+              : 'Type: WhatsApp text export'
             : isImage
             ? 'Type: Photo'
             : `Duration: ${durationSec != null ? `${durationSec}s` : 'Unavailable'}`}
