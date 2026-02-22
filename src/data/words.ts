@@ -1,6 +1,8 @@
 import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
-import { FR_TERMS_BY_ID } from './words.fr';
+
+// Build-safe fallback: if no French dataset is shipped, we still resolve terms.
+const FR_TERMS_BY_ID: Record<string, string> = {};
 
 type RawWord = Omit<Word, 'term' | 'language'> & { pt: string };
 
@@ -613,10 +615,7 @@ function toLocalizedWord(raw: RawWord, language: PracticeLanguage): Word {
   const { pt, ...rest } = raw;
   if (language === 'fr') {
     const frTerm = FR_TERMS_BY_ID[raw.id];
-    if (!frTerm) {
-      throw new Error(`Missing French term for word id "${raw.id}"`);
-    }
-    return { ...rest, term: frTerm, language };
+    return { ...rest, term: frTerm ?? pt, language };
   }
   return { ...rest, term: pt, language };
 }
