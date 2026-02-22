@@ -16,6 +16,7 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { HeaderHUD } from '../components/HeaderHUD';
 import { FlashCard } from '../components/FlashCard';
 import { CompletionModal } from '../components/CompletionModal';
@@ -50,6 +51,7 @@ const bgImage = require('../../v1/bg.png');
 const MIN_CARDS = 50;
 const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
+const SWIPE_UP_THRESHOLD = 90;
 
 type ParsedCustomEntry = {
   term: string;
@@ -356,6 +358,29 @@ export function FlashSessionScreen() {
     }
     swipeLeft();
   }, [recordSessionSkip, swipeLeft, state?.currentCardId]);
+
+  const handleGlobalSwipeUp = useCallback(() => {
+    if (
+      !state ||
+      state.uiState !== 'PROMPT' ||
+      state.cleared ||
+      stopModalVisible ||
+      showGestureDemo
+    ) {
+      return;
+    }
+    swipeUp();
+  }, [showGestureDemo, state, stopModalVisible, swipeUp]);
+
+  const globalSwipeUpGesture = Gesture.Pan()
+    .enabled(Boolean(state && state.uiState === 'PROMPT' && !state.cleared && !stopModalVisible && !showGestureDemo))
+    .activeOffsetX([-40, 40])
+    .onEnd((event) => {
+      const wentUp = event.translationY < -SWIPE_UP_THRESHOLD || event.velocityY < -280;
+      if (wentUp) {
+        handleGlobalSwipeUp();
+      }
+    });
 
   // Record "Know" once per card when feedback is correct
   useEffect(() => {
@@ -729,21 +754,23 @@ export function FlashSessionScreen() {
   }
 
   return (
-    <ImageBackground
-      source={bgImage}
-      style={[styles.screen, { paddingTop: (insets.top || 0) + theme.safeAreaTopOffset }]}
-      resizeMode="cover"
-    >
-      <HeaderHUD
+    <GestureDetector gesture={globalSwipeUpGesture}>
+      <ImageBackground
+        source={bgImage}
+        style={[styles.screen, { paddingTop: (insets.top || 0) + theme.safeAreaTopOffset }]}
+        resizeMode="cover"
+      >
+        <HeaderHUD
         rightCount={state.rightCount}
         incorrectCount={state.incorrectCount}
         skippedCount={state.skippedCount}
+        guessedCount={state.guessedCount}
         remaining={remaining}
         startedAt={state.startedAt}
         frozen={state.cleared || stopModalVisible}
-      />
-      <View style={styles.content}>
-        <FlashCard
+        />
+        <View style={styles.content}>
+          <FlashCard
           word={currentWord}
           uiState={state.uiState}
           choiceOptions={state.choiceOptions}
@@ -759,78 +786,79 @@ export function FlashSessionScreen() {
           playbackRate={playbackRate}
           onCycleSpeed={handleCycleSpeed}
           disabled={state.cleared || stopModalVisible || showGestureDemo}
-        />
-      </View>
-      <View style={[styles.debugPanelWrap, { top: (insets.top || 0) + 62 }]}>
-        <Pressable
+          />
+        </View>
+        <View style={[styles.debugPanelWrap, { top: (insets.top || 0) + 62 }]}>
+          <Pressable
           style={({ pressed }) => [styles.debugToggle, pressed && styles.debugTogglePressed]}
           onPress={() => setShowSchedulerDebug((prev) => !prev)}
-        >
-          <Text style={styles.debugToggleLabel}>
-            {showSchedulerDebug ? 'Hide debug' : 'Show debug'}
-          </Text>
-        </Pressable>
-        {showSchedulerDebug && (
-          <View style={styles.debugPanel}>
-            <Text style={styles.debugTitle}>Scheduler</Text>
-            <Text style={styles.debugLine}>
+          >
+            <Text style={styles.debugToggleLabel}>
+              {showSchedulerDebug ? 'Hide debug' : 'Show debug'}
+            </Text>
+          </Pressable>
+          {showSchedulerDebug && (
+            <View style={styles.debugPanel}>
+              <Text style={styles.debugTitle}>Scheduler</Text>
+              <Text style={styles.debugLine}>
               Due selected: {spacedRepetitionDebug.stats.selectedDue} / available {spacedRepetitionDebug.stats.dueAvailable}
-            </Text>
-            <Text style={styles.debugLine}>
+              </Text>
+              <Text style={styles.debugLine}>
               New selected: {spacedRepetitionDebug.stats.selectedNew} / available {spacedRepetitionDebug.stats.newAvailable}
-            </Text>
-            <Text style={styles.debugLine}>
+              </Text>
+              <Text style={styles.debugLine}>
               Card dueAt: {spacedRepetitionDebug.currentCardSchedule?.dueAt ?? 'new'}
-            </Text>
-            <Text style={styles.debugLine}>
+              </Text>
+              <Text style={styles.debugLine}>
               Interval days: {spacedRepetitionDebug.currentCardSchedule?.intervalDays ?? 0}
-            </Text>
-            <Text style={styles.debugLine}>
+              </Text>
+              <Text style={styles.debugLine}>
               Ease: {spacedRepetitionDebug.currentCardSchedule?.ease?.toFixed(2) ?? '2.50'}
-            </Text>
-            <Text style={styles.debugLine}>
+              </Text>
+              <Text style={styles.debugLine}>
               Last review: {spacedRepetitionDebug.lastReview?.grade ?? '-'}
-            </Text>
-          </View>
-        )}
-      </View>
-      <GestureDemoOverlay
+              </Text>
+            </View>
+          )}
+        </View>
+        <GestureDemoOverlay
         visible={showGestureDemo}
         onDismiss={() => setShowGestureDemo(false)}
-      />
-      {!state.cleared && !stopModalVisible && (
-        <Pressable
+        />
+        {!state.cleared && !stopModalVisible && (
+          <Pressable
           style={({ pressed }) => [
             styles.pauseButton,
             { bottom: (insets.bottom || 0) + 14 },
             pressed && styles.pauseButtonPressed,
           ]}
           onPress={handleOpenStopModal}
-        >
-          <FontAwesome5 name="pause-circle" size={18} color={theme.textPrimary} solid />
-          <Text style={styles.pauseButtonText}>Pause</Text>
-        </Pressable>
-      )}
-      <CompletionModal
+          >
+            <FontAwesome5 name="pause-circle" size={18} color={theme.textPrimary} solid />
+            <Text style={styles.pauseButtonText}>Pause</Text>
+          </Pressable>
+        )}
+        <CompletionModal
         visible={showModal}
         bestTimeMs={bestTimeMs}
         onRunAgain={handleRunAgain}
         onDone={handleDone}
-      />
-      <StopSessionModal
+        />
+        <StopSessionModal
         visible={stopModalVisible}
         uniqueMissCount={uniqueMissCount}
         onResume={handleResumeSession}
         onStopAndCopy={handleStopAndCopy}
-      />
-      {Platform.OS === 'web' && toastMessage && (
-        <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
-          <View style={styles.webToast}>
-            <Text style={styles.webToastText}>{toastMessage}</Text>
+        />
+        {Platform.OS === 'web' && toastMessage && (
+          <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
+            <View style={styles.webToast}>
+              <Text style={styles.webToastText}>{toastMessage}</Text>
+            </View>
           </View>
-        </View>
-      )}
-    </ImageBackground>
+        )}
+      </ImageBackground>
+    </GestureDetector>
   );
 }
 

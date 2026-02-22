@@ -78,7 +78,9 @@ export function FlashCard({
   disabled = false,
 }: FlashCardProps) {
   const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
   const cardWidth = 320;
+  const cardHeight = 420;
 
   const handlePlayAtRate = useCallback(() => {
     onPlayAudio?.(playbackRate);
@@ -103,31 +105,38 @@ export function FlashCard({
     .enabled(!disabled && uiState === 'PROMPT')
     .onUpdate((e) => {
       translateX.value = e.translationX;
+      translateY.value = e.translationY;
     })
     .onEnd((e) => {
       const goLeft = translateX.value < -SWIPE_THRESHOLD || e.velocityX < -300;
       const goRight = translateX.value > SWIPE_THRESHOLD || e.velocityX > 300;
-      const goUp = e.translationY < -SWIPE_UP_THRESHOLD || e.velocityY < -300;
+      const goUp = translateY.value < -SWIPE_UP_THRESHOLD || e.velocityY < -300;
       if (goUp) {
-        runOnJS(onSwipeUp)();
-        translateX.value = withSpring(0, springConfig);
+        translateY.value = withTiming(-cardHeight * 1.2, { duration: 200 }, () => {
+          runOnJS(onSwipeUp)();
+          translateX.value = 0;
+          translateY.value = 0;
+        });
       } else if (goLeft) {
         translateX.value = withTiming(-cardWidth * 1.2, { duration: 200 }, () => {
           runOnJS(onSwipeLeft)();
           translateX.value = 0;
+          translateY.value = 0;
         });
       } else if (goRight) {
         translateX.value = withTiming(cardWidth * 1.2, { duration: 200 }, () => {
           runOnJS(onSwipeRight)();
           translateX.value = 0;
+          translateY.value = 0;
         });
       } else {
         translateX.value = withSpring(0, springConfig);
+        translateY.value = withSpring(0, springConfig);
       }
     });
 
   const animatedCardStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
+    transform: [{ translateX: translateX.value }, { translateY: translateY.value }],
   }));
 
   if (!word) {

@@ -7,6 +7,7 @@ type HeaderHUDProps = {
   rightCount: number;
   incorrectCount: number;
   skippedCount: number;
+  guessedCount: number;
   remaining: number;
   startedAt: number | null;
   frozen?: boolean;
@@ -27,6 +28,7 @@ export function HeaderHUD({
   rightCount,
   incorrectCount,
   skippedCount,
+  guessedCount,
   remaining,
   startedAt,
   frozen = false,
@@ -56,6 +58,10 @@ export function HeaderHUD({
           <View style={styles.pill}>
             <FontAwesome5 name="forward" size={theme.iconSizeHud} color={theme.info} solid />
             <Text style={styles.count}>{skippedCount}</Text>
+          </View>
+          <View style={styles.pill}>
+            <FontAwesome5 name="arrow-up" size={theme.iconSizeHud} color="#F5B94C" solid />
+            <Text style={styles.count}>{guessedCount}</Text>
           </View>
         </View>
         <View style={styles.middleCluster}>

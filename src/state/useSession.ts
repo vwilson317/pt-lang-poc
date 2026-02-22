@@ -39,6 +39,7 @@ function createInitialStateFromDeck(deck: Word[]): SessionState {
     rightCount: 0,
     incorrectCount: 0,
     skippedCount: 0,
+    guessedCount: 0,
     deckCount: queue.length,
     startedAt: Date.now(),
     cleared: isEmpty,
@@ -248,7 +249,8 @@ export function useSession() {
         correctEn,
         2,
         prev.currentCardId,
-        deckRef.current
+        deckRef.current,
+        word
       );
       const options = shuffleArray([correctEn, ...distractors]);
       const correctChoiceIndex = options.indexOf(correctEn);
@@ -257,6 +259,7 @@ export function useSession() {
         uiState: 'CHOICES',
         choiceOptions: options,
         correctChoiceIndex,
+        guessedCount: prev.guessedCount + 1,
         currentCardWasGuess: true,
       };
     });
@@ -290,7 +293,8 @@ export function useSession() {
         correctEn,
         2,
         prev.currentCardId,
-        deckRef.current
+        deckRef.current,
+        word
       );
       const options = shuffleArray([correctEn, ...distractors]);
       const correctChoiceIndex = options.indexOf(correctEn);

@@ -11,6 +11,7 @@ export type SessionState = {
   rightCount: number;
   incorrectCount: number;
   skippedCount: number;
+  guessedCount: number;
   deckCount: number;
   startedAt: number;
   cleared: boolean;

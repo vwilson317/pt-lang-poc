@@ -69,6 +69,7 @@ export function GestureDemoOverlay({ visible, onDismiss }: GestureDemoOverlayPro
             </Animated.View>
             <Text style={styles.label}>Swipe ← Skip</Text>
           </View>
+          <Text style={styles.label}>Swipe ↑ anywhere = Guess</Text>
           <Text style={styles.label}>Tap = Stop Audio</Text>
           <Text style={styles.label}>Tap speed badge to change speed</Text>
         </View>

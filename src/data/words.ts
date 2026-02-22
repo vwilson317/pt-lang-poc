@@ -629,6 +629,28 @@ function shuffle<T>(arr: T[]): T[] {
   return out;
 }
 
+function resolveWordType(word: Pick<Word, 'wordType' | 'en'>): string | undefined {
+  if (word.wordType) return word.wordType;
+  const normalizedEn = word.en?.trim().toLocaleLowerCase();
+  if (
+    normalizedEn &&
+    (normalizedEn.startsWith('to ') ||
+      normalizedEn.includes('/to ') ||
+      normalizedEn.startsWith("let's "))
+  ) {
+    return 'verb';
+  }
+  return undefined;
+}
+
+function getAllowedDistractorTypes(correctWord: Word | undefined): string[] {
+  const type = resolveWordType(correctWord ?? {});
+  if (type === 'noun') return ['noun', 'verb'];
+  if (type === 'verb') return ['verb', 'adjective'];
+  if (type === 'adjective') return ['adjective', 'noun'];
+  return [];
+}
+
 /** Returns all words. In v1 this is the "deck". */
 export function getWords(): Word[] {
   return WORDS.map((word) => toLocalizedWord(word, 'pt'));
@@ -666,16 +688,42 @@ export function getDistractors(
   correctEn: string,
   count: number,
   excludeId?: string,
-  wordPool: Word[] = getWords()
+  wordPool: Word[] = getWords(),
+  correctWord?: Word
 ): string[] {
   const others = wordPool.filter(
     (w) => w.en && w.en !== correctEn && w.id !== excludeId
   );
-  const shuffled = shuffle(others);
+  const allowedTypes = getAllowedDistractorTypes(correctWord);
+
   const enValues = new Set<string>();
-  for (const w of shuffled) {
-    if (w.en) enValues.add(w.en);
-    if (enValues.size >= count) break;
+  if (allowedTypes.length > 0) {
+    const byType = new Map<string, Word[]>();
+    for (const type of allowedTypes) {
+      byType.set(type, shuffle(others.filter((w) => resolveWordType(w) === type)));
+    }
+
+    let addedInPass = true;
+    while (enValues.size < count && addedInPass) {
+      addedInPass = false;
+      for (const type of allowedTypes) {
+        const bucket = byType.get(type);
+        if (!bucket || bucket.length === 0) continue;
+        const nextWord = bucket.pop();
+        if (!nextWord?.en || enValues.has(nextWord.en)) continue;
+        enValues.add(nextWord.en);
+        addedInPass = true;
+        if (enValues.size >= count) break;
+      }
+    }
+  }
+
+  if (enValues.size < count) {
+    for (const w of shuffle(others)) {
+      if (!w.en || enValues.has(w.en)) continue;
+      enValues.add(w.en);
+      if (enValues.size >= count) break;
+    }
   }
   return [...enValues].slice(0, count);
 }
