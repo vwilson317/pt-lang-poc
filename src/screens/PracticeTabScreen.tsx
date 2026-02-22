@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FlashSessionScreen } from './FlashSessionScreen';
 import { SentencePracticeScreen } from './SentencePracticeScreen';
 import { PhrasePracticeScreen } from './PhrasePracticeScreen';
+import { WordCardPracticeScreen } from './WordCardPracticeScreen';
 import { ensureV11Initialized, getSelectedDeck } from '../lib/v11Storage';
 import { theme } from '../theme';
 
@@ -23,7 +24,7 @@ export function PracticeTabScreen() {
   }, []);
 
   useEffect(() => {
-    if (params.mode === 'sentences' || params.mode === 'phrases') {
+    if (params.mode === 'sentences' || params.mode === 'phrases' || params.mode === 'words') {
       setMode(params.mode);
     }
   }, [params.mode]);
@@ -34,6 +35,33 @@ export function PracticeTabScreen() {
   );
 
   if (mode === 'words') {
+    if (sourceClipId) {
+      return (
+        <View style={styles.fill}>
+          <View style={styles.modeBar}>
+            <Pressable style={[styles.modeBtn, styles.modeBtnActive]}>
+              <Text style={styles.modeLabel}>Words</Text>
+            </Pressable>
+            <Pressable style={styles.modeBtn} onPress={() => setMode('sentences')}>
+              <Text style={styles.modeLabelMuted}>Sentences</Text>
+            </Pressable>
+            <Pressable style={styles.modeBtn} onPress={() => setMode('phrases')}>
+              <Text style={styles.modeLabelMuted}>Phrases</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push('/(tabs)/imports')} style={styles.modeBtn}>
+              <Text style={styles.modeLabelMuted}>Imports</Text>
+            </Pressable>
+          </View>
+          <WordCardPracticeScreen
+            sourceClipId={sourceClipId}
+            onBack={() => {
+              router.replace('/(tabs)/practice');
+            }}
+          />
+        </View>
+      );
+    }
+
     return (
       <View style={styles.fill}>
         <View style={styles.modeBar}>

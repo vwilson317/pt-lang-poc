@@ -18,7 +18,6 @@ import { theme } from '../theme';
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
 type ImportKind = 'media' | 'whatsapp';
-type ImportDestination = 'current' | 'new';
 type WhatsAppCardOutput = 'sentence' | 'word';
 
 function normalizedAssetName(asset: PickerAsset): string {
@@ -141,9 +140,8 @@ export function ImportTabScreen() {
   const [state, setState] = useState<ImportState>('EMPTY');
   const [asset, setAsset] = useState<PickerAsset | null>(null);
   const [importKind, setImportKind] = useState<ImportKind>('media');
-  const [importDestination, setImportDestination] = useState<ImportDestination>('current');
   const [whatsAppCardOutput, setWhatsAppCardOutput] = useState<WhatsAppCardOutput>('sentence');
-  const [includeOtherParticipants, setIncludeOtherParticipants] = useState(false);
+  const [includeOtherParticipants, setIncludeOtherParticipants] = useState(true);
   const [whatsAppTextCache, setWhatsAppTextCache] = useState<string | null>(null);
   const [availableSenderPhones, setAvailableSenderPhones] = useState<WhatsAppSenderPhone[]>([]);
   const [selectedSenderPhones, setSelectedSenderPhones] = useState<string[]>([]);
@@ -170,7 +168,7 @@ export function ImportTabScreen() {
             return;
           }
           const clip = await getJobResult(jobId);
-          await upsertClip(clip);
+          await upsertClip({ ...clip, importCardType: 'sentence' });
           const deckId = await getSelectedDeckId();
           const sentenceCards: FlashCardRecord[] = clip.segments.map((segment) => ({
             id: `sentence-${clip.id}-${segment.id}`,
@@ -348,7 +346,7 @@ export function ImportTabScreen() {
     setAvailableSenderPhones([]);
     setSelectedSenderPhones([]);
     setWhatsAppCardOutput('sentence');
-    setIncludeOtherParticipants(false);
+    setIncludeOtherParticipants(true);
     setAnalyzingWhatsAppFile(false);
 
     if (kind !== 'whatsapp') return;
@@ -358,7 +356,7 @@ export function ImportTabScreen() {
       const senderPhones = listWhatsAppSenderPhones(rawText);
       setWhatsAppTextCache(rawText);
       setAvailableSenderPhones(senderPhones);
-      setSelectedSenderPhones(senderPhones.slice(0, 1).map((item) => item.phone));
+      setSelectedSenderPhones([]);
       if (senderPhones.length === 0) {
         setImportWarning(
           'No phone numbers were detected in this export. You can still import all participants.'
@@ -424,6 +422,7 @@ export function ImportTabScreen() {
         id: clipId,
         sourceLanguage: 'pt' as const,
         targetLanguage: 'en' as const,
+        importCardType: whatsAppCardOutput,
         transcriptOriginal: parsed.transcript,
         transcriptTranslated: parsed.transcript,
         segments: parsed.segments,
@@ -460,15 +459,16 @@ export function ImportTabScreen() {
       setProgress(100);
       setProgressLabel('Complete');
       setState('DONE');
-      if (importDestination === 'new') {
-        if (whatsAppCardOutput === 'sentence') {
-          router.push({
-            pathname: '/(tabs)/practice',
-            params: { mode: 'sentences', clipId: clip.id },
-          });
-        } else {
-          router.push('/(tabs)/practice');
-        }
+      if (whatsAppCardOutput === 'sentence') {
+        router.push({
+          pathname: '/(tabs)/practice',
+          params: { mode: 'sentences', clipId: clip.id },
+        });
+      } else {
+        router.push({
+          pathname: '/(tabs)/practice',
+          params: { mode: 'words', clipId: clip.id },
+        });
       }
     } catch (error) {
       setState('FAILED');
@@ -478,7 +478,6 @@ export function ImportTabScreen() {
   }, [
     asset,
     availableSenderPhones.length,
-    importDestination,
     includeOtherParticipants,
     analyzingWhatsAppFile,
     whatsAppCardOutput,
@@ -550,31 +549,6 @@ export function ImportTabScreen() {
         )}
         {importKind === 'whatsapp' && (
           <View style={styles.whatsAppOptions}>
-            <Text style={styles.optionLabel}>Select one or more participant phone numbers</Text>
-            {analyzingWhatsAppFile ? (
-              <Text style={styles.helper}>Scanning chat participants...</Text>
-            ) : availableSenderPhones.length === 0 ? (
-              <Text style={styles.helper}>
-                No phone numbers detected in this file. Use "Include all" to import the full thread.
-              </Text>
-            ) : (
-              <View style={styles.toggleRow}>
-                {availableSenderPhones.map((item) => {
-                  const active = selectedSenderSet.has(item.phone);
-                  return (
-                    <Pressable
-                      key={item.phone}
-                      style={[styles.smallToggle, active && styles.smallToggleActive]}
-                      onPress={() => toggleSelectedSenderPhone(item.phone)}
-                    >
-                      <Text style={styles.smallToggleLabel}>
-                        {formatPhoneForDisplay(item.phone)} ({item.messageCount})
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
             <Text style={styles.optionLabel}>Import messages from</Text>
             <View style={styles.toggleRow}>
               <Pressable
@@ -590,6 +564,35 @@ export function ImportTabScreen() {
                 <Text style={styles.smallToggleLabel}>Include all</Text>
               </Pressable>
             </View>
+            {!includeOtherParticipants && (
+              <>
+                <Text style={styles.optionLabel}>Select one or more participant phone numbers</Text>
+                {analyzingWhatsAppFile ? (
+                  <Text style={styles.helper}>Scanning chat participants...</Text>
+                ) : availableSenderPhones.length === 0 ? (
+                  <Text style={styles.helper}>
+                    No phone numbers detected in this file. Switch to "Include all" to import the full thread.
+                  </Text>
+                ) : (
+                  <View style={styles.toggleRow}>
+                    {availableSenderPhones.map((item) => {
+                      const active = selectedSenderSet.has(item.phone);
+                      return (
+                        <Pressable
+                          key={item.phone}
+                          style={[styles.smallToggle, active && styles.smallToggleActive]}
+                          onPress={() => toggleSelectedSenderPhone(item.phone)}
+                        >
+                          <Text style={styles.smallToggleLabel}>
+                            {formatPhoneForDisplay(item.phone)} ({item.messageCount})
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </>
+            )}
             <Text style={styles.optionLabel}>Create cards as</Text>
             <View style={styles.toggleRow}>
               <Pressable
@@ -610,23 +613,6 @@ export function ImportTabScreen() {
                 Word cards are generated from unique words in the selected messages.
               </Text>
             )}
-            <Text style={styles.optionLabel}>Add cards to</Text>
-            <View style={styles.toggleRow}>
-              <Pressable
-                style={[styles.smallToggle, importDestination === 'current' && styles.smallToggleActive]}
-                onPress={() => setImportDestination('current')}
-              >
-                <Text style={styles.smallToggleLabel}>Current session</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.smallToggle, importDestination === 'new' && styles.smallToggleActive]}
-                onPress={() => setImportDestination('new')}
-              >
-                <Text style={styles.smallToggleLabel}>
-                  {whatsAppCardOutput === 'sentence' ? 'New sentence session' : 'Practice tab'}
-                </Text>
-              </Pressable>
-            </View>
           </View>
         )}
         <View style={styles.row}>
@@ -691,7 +677,7 @@ export function ImportTabScreen() {
               setImportWarning(null);
               setImportedCardsCount(0);
               setWhatsAppCardOutput('sentence');
-              setIncludeOtherParticipants(false);
+              setIncludeOtherParticipants(true);
               setWhatsAppTextCache(null);
               setAvailableSenderPhones([]);
               setSelectedSenderPhones([]);
@@ -720,7 +706,7 @@ export function ImportTabScreen() {
           setImportWarning(null);
           setImportedCardsCount(0);
           setWhatsAppCardOutput('sentence');
-          setIncludeOtherParticipants(false);
+          setIncludeOtherParticipants(true);
           setWhatsAppTextCache(null);
           setAvailableSenderPhones([]);
           setSelectedSenderPhones([]);

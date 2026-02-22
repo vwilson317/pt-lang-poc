@@ -140,6 +140,15 @@ export async function getSentenceCards(deckId: string, sourceClipId?: string): P
   });
 }
 
+export async function getWordCards(deckId: string, sourceClipId?: string): Promise<FlashCardRecord[]> {
+  const cards = await getCardsByDeck(deckId);
+  return cards.filter((card) => {
+    if (card.cardType !== 'word') return false;
+    if (!sourceClipId) return true;
+    return card.sourceClipId === sourceClipId;
+  });
+}
+
 export async function ensureDefaultPhraseCards(deckId: string): Promise<void> {
   const cards = await getCardsByDeck(deckId);
   const hasPhraseById = new Set(
