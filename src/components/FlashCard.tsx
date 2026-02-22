@@ -199,7 +199,7 @@ export function FlashCard({
                   />
                   <View style={styles.audioButtonContent}>
                     <FontAwesome5 name="volume-up" size={theme.iconSizeButton} color={theme.textPrimary} solid />
-                    <Text style={styles.audioLabel}>Tap to play</Text>
+                    <Text style={styles.audioLabel}>Play again</Text>
                   </View>
                 </Pressable>
               )}

@@ -193,7 +193,6 @@ export function FlashSessionScreen() {
   const [showSchedulerDebug, setShowSchedulerDebug] = React.useState(false);
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const userHasEnabledAudioRef = useRef(false);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
   const lastRecordedIncorrectIdRef = useRef<string | null>(null);
   const gestureDemoShownRef = useRef(false);
@@ -360,7 +359,6 @@ export function FlashSessionScreen() {
 
   const handlePlayAudio = useCallback((rate: number) => {
     if (!currentWord) return;
-    userHasEnabledAudioRef.current = true;
     playWordAudio(currentWord, rate);
   }, [currentWord]);
 
@@ -445,14 +443,9 @@ export function FlashSessionScreen() {
     }
   }, [state?.uiState, state?.currentCardId]);
 
-  // Optional autoplay: after first tap, on new card use persisted playback rate
+  // Auto-play by default on every prompt card using persisted playback rate.
   useEffect(() => {
-    if (
-      state?.uiState !== 'PROMPT' ||
-      !currentWord ||
-      !userHasEnabledAudioRef.current
-    )
-      return;
+    if (state?.uiState !== 'PROMPT' || !currentWord) return;
     playWordAudio(currentWord, playbackRate);
   }, [state?.currentCardId, state?.uiState, currentWord, playbackRate]);
 
