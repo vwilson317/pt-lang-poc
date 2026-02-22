@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import JSZip from 'jszip';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
@@ -8,7 +8,11 @@ import { createJob, getJobResult, getJobStatus } from '../lib/jobsApi';
 import { addCards, getSelectedDeckId, upsertClip } from '../lib/v11Storage';
 import type { ClipStatus, FlashCardRecord } from '../types/v11';
 import { makeId } from '../lib/id';
-import { buildWhatsAppImport } from '../lib/whatsAppImport';
+import {
+  buildWhatsAppImport,
+  listWhatsAppSenderPhones,
+  type WhatsAppSenderPhone,
+} from '../lib/whatsAppImport';
 import { theme } from '../theme';
 
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
@@ -18,6 +22,10 @@ type ImportDestination = 'current' | 'new';
 
 function normalizedAssetName(asset: PickerAsset): string {
   return (asset.name ?? '').trim().toLowerCase();
+}
+
+function formatPhoneForDisplay(value: string): string {
+  return value.startsWith('+') ? value : `+${value}`;
 }
 
 function scoreZipTextEntry(entryName: string): number {
@@ -93,8 +101,11 @@ export function ImportTabScreen() {
   const [asset, setAsset] = useState<PickerAsset | null>(null);
   const [importKind, setImportKind] = useState<ImportKind>('media');
   const [importDestination, setImportDestination] = useState<ImportDestination>('current');
-  const [myPhoneNumber, setMyPhoneNumber] = useState('');
   const [includeOtherParticipants, setIncludeOtherParticipants] = useState(false);
+  const [whatsAppTextCache, setWhatsAppTextCache] = useState<string | null>(null);
+  const [availableSenderPhones, setAvailableSenderPhones] = useState<WhatsAppSenderPhone[]>([]);
+  const [selectedSenderPhones, setSelectedSenderPhones] = useState<string[]>([]);
+  const [analyzingWhatsAppFile, setAnalyzingWhatsAppFile] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState('Preparing import...');
@@ -256,6 +267,17 @@ export function ImportTabScreen() {
     [isZipAsset, readBinaryAsset, readTextAsset]
   );
 
+  const toggleSelectedSenderPhone = useCallback((phone: string) => {
+    setSelectedSenderPhones((prev) =>
+      prev.includes(phone) ? prev.filter((item) => item !== phone) : [...prev, phone]
+    );
+  }, []);
+
+  const selectedSenderSet = useMemo(
+    () => new Set(selectedSenderPhones),
+    [selectedSenderPhones]
+  );
+
   const pickFile = useCallback(async (kind: ImportKind) => {
     const result = await DocumentPicker.getDocumentAsync({
       type: kind === 'media' ? ['video/*', 'image/*'] : '*/*',
@@ -280,13 +302,48 @@ export function ImportTabScreen() {
     setImportWarning(null);
     setImportedCardsCount(0);
     setJobId(null);
-  }, [isWhatsAppAsset]);
+    setWhatsAppTextCache(null);
+    setAvailableSenderPhones([]);
+    setSelectedSenderPhones([]);
+    setIncludeOtherParticipants(false);
+    setAnalyzingWhatsAppFile(false);
+
+    if (kind !== 'whatsapp') return;
+    setAnalyzingWhatsAppFile(true);
+    try {
+      const rawText = await readWhatsAppTextAsset(selected);
+      const senderPhones = listWhatsAppSenderPhones(rawText);
+      setWhatsAppTextCache(rawText);
+      setAvailableSenderPhones(senderPhones);
+      setSelectedSenderPhones(senderPhones.slice(0, 1).map((item) => item.phone));
+      if (senderPhones.length === 0) {
+        setImportWarning(
+          'No phone numbers were detected in this export. You can still import all participants.'
+        );
+      }
+    } catch (error) {
+      setState('FAILED');
+      const fallback = 'Could not read this WhatsApp export. Try another .txt or .zip file.';
+      setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
+    } finally {
+      setAnalyzingWhatsAppFile(false);
+    }
+  }, [isWhatsAppAsset, readWhatsAppTextAsset]);
 
   const startWhatsAppImport = useCallback(async () => {
     if (!asset) return;
-    if (!myPhoneNumber.trim()) {
+    if (analyzingWhatsAppFile) {
       setState('FAILED');
-      setErrorMessage('Add your phone number so we can identify your messages.');
+      setErrorMessage('Still reading the WhatsApp file. Please wait a moment and try again.');
+      return;
+    }
+    if (
+      !includeOtherParticipants &&
+      availableSenderPhones.length > 0 &&
+      selectedSenderPhones.length === 0
+    ) {
+      setState('FAILED');
+      setErrorMessage('Select at least one phone number or choose "Include all".');
       return;
     }
 
@@ -297,10 +354,17 @@ export function ImportTabScreen() {
     setProgressLabel('Reading WhatsApp export...');
 
     try {
-      const rawText = await readWhatsAppTextAsset(asset);
+      const rawText = whatsAppTextCache ?? (await readWhatsAppTextAsset(asset));
+      if (!whatsAppTextCache) {
+        setWhatsAppTextCache(rawText);
+      }
       setProgress(35);
       setProgressLabel('Parsing thread...');
-      const parsed = buildWhatsAppImport(rawText, myPhoneNumber, includeOtherParticipants);
+      const parsed = buildWhatsAppImport(
+        rawText,
+        selectedSenderPhones,
+        includeOtherParticipants
+      );
       if (parsed.segments.length === 0) {
         setState('FAILED');
         setErrorMessage(parsed.warning ?? 'No usable messages found in this thread export.');
@@ -350,7 +414,17 @@ export function ImportTabScreen() {
       const fallback = 'Could not import this WhatsApp export. Try another .txt or .zip file.';
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
     }
-  }, [asset, importDestination, includeOtherParticipants, myPhoneNumber, readWhatsAppTextAsset, router]);
+  }, [
+    asset,
+    availableSenderPhones.length,
+    importDestination,
+    includeOtherParticipants,
+    analyzingWhatsAppFile,
+    readWhatsAppTextAsset,
+    router,
+    selectedSenderPhones,
+    whatsAppTextCache,
+  ]);
 
   const startUpload = useCallback(async () => {
     if (!asset) return;
@@ -414,24 +488,38 @@ export function ImportTabScreen() {
         )}
         {importKind === 'whatsapp' && (
           <View style={styles.whatsAppOptions}>
-            <Text style={styles.optionLabel}>Your phone number (with country code)</Text>
-            <TextInput
-              value={myPhoneNumber}
-              onChangeText={setMyPhoneNumber}
-              style={styles.input}
-              placeholder="+55 11 99999 9999"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="phone-pad"
-            />
-            <Text style={styles.optionLabel}>Include other participants?</Text>
+            <Text style={styles.optionLabel}>Select one or more participant phone numbers</Text>
+            {analyzingWhatsAppFile ? (
+              <Text style={styles.helper}>Scanning chat participants...</Text>
+            ) : availableSenderPhones.length === 0 ? (
+              <Text style={styles.helper}>
+                No phone numbers detected in this file. Use "Include all" to import the full thread.
+              </Text>
+            ) : (
+              <View style={styles.toggleRow}>
+                {availableSenderPhones.map((item) => {
+                  const active = selectedSenderSet.has(item.phone);
+                  return (
+                    <Pressable
+                      key={item.phone}
+                      style={[styles.smallToggle, active && styles.smallToggleActive]}
+                      onPress={() => toggleSelectedSenderPhone(item.phone)}
+                    >
+                      <Text style={styles.smallToggleLabel}>
+                        {formatPhoneForDisplay(item.phone)} ({item.messageCount})
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+            <Text style={styles.optionLabel}>Import messages from</Text>
             <View style={styles.toggleRow}>
               <Pressable
                 style={[styles.smallToggle, !includeOtherParticipants && styles.smallToggleActive]}
                 onPress={() => setIncludeOtherParticipants(false)}
               >
-                <Text style={styles.smallToggleLabel}>Mine only</Text>
+                <Text style={styles.smallToggleLabel}>Selected numbers</Text>
               </Pressable>
               <Pressable
                 style={[styles.smallToggle, includeOtherParticipants && styles.smallToggleActive]}
@@ -515,8 +603,11 @@ export function ImportTabScreen() {
               setErrorMessage(null);
               setImportWarning(null);
               setImportedCardsCount(0);
-              setMyPhoneNumber('');
               setIncludeOtherParticipants(false);
+              setWhatsAppTextCache(null);
+              setAvailableSenderPhones([]);
+              setSelectedSenderPhones([]);
+              setAnalyzingWhatsAppFile(false);
               setProgress(0);
             }}
           >
@@ -540,8 +631,11 @@ export function ImportTabScreen() {
           setErrorMessage(null);
           setImportWarning(null);
           setImportedCardsCount(0);
-          setMyPhoneNumber('');
           setIncludeOtherParticipants(false);
+          setWhatsAppTextCache(null);
+          setAvailableSenderPhones([]);
+          setSelectedSenderPhones([]);
+          setAnalyzingWhatsAppFile(false);
           setJobId(null);
           setProgress(0);
         }}
@@ -604,17 +698,6 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
     fontSize: 13,
     fontWeight: '600',
-  },
-  input: {
-    width: '100%',
-    minHeight: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    color: theme.textPrimary,
-    paddingHorizontal: 12,
-    fontSize: 15,
   },
   toggleRow: {
     flexDirection: 'row',
