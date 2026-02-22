@@ -308,6 +308,7 @@ export function ImportTabScreen() {
   );
 
   const toggleSelectedSenderPhone = useCallback((phone: string) => {
+    setErrorMessage(null);
     setSelectedSenderPhones((prev) =>
       prev.includes(phone) ? prev.filter((item) => item !== phone) : [...prev, phone]
     );
@@ -316,6 +317,35 @@ export function ImportTabScreen() {
   const selectedSenderSet = useMemo(
     () => new Set(selectedSenderPhones),
     [selectedSenderPhones]
+  );
+
+  const analyzeWhatsAppAsset = useCallback(
+    async (selected: PickerAsset): Promise<{ rawText: string; senderPhones: WhatsAppSenderPhone[] } | null> => {
+      setAnalyzingWhatsAppFile(true);
+      try {
+        const rawText = await readWhatsAppTextAsset(selected);
+        const senderPhones = listWhatsAppSenderPhones(rawText);
+        setWhatsAppTextCache(rawText);
+        setAvailableSenderPhones(senderPhones);
+        setSelectedSenderPhones((prev) =>
+          prev.filter((phone) => senderPhones.some((item) => item.phone === phone))
+        );
+        if (senderPhones.length === 0) {
+          setImportWarning(
+            'No phone numbers were detected in this export. Switch to "Include all" to import the thread.'
+          );
+        }
+        return { rawText, senderPhones };
+      } catch (error) {
+        setState('FAILED');
+        const fallback = 'Could not read this WhatsApp export. Try another .txt or .zip file.';
+        setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
+        return null;
+      } finally {
+        setAnalyzingWhatsAppFile(false);
+      }
+    },
+    [readWhatsAppTextAsset]
   );
 
   const pickFile = useCallback(async (kind: ImportKind) => {
@@ -348,42 +378,32 @@ export function ImportTabScreen() {
     setWhatsAppCardOutput('sentence');
     setIncludeOtherParticipants(true);
     setAnalyzingWhatsAppFile(false);
-
-    if (kind !== 'whatsapp') return;
-    setAnalyzingWhatsAppFile(true);
-    try {
-      const rawText = await readWhatsAppTextAsset(selected);
-      const senderPhones = listWhatsAppSenderPhones(rawText);
-      setWhatsAppTextCache(rawText);
-      setAvailableSenderPhones(senderPhones);
-      setSelectedSenderPhones([]);
-      if (senderPhones.length === 0) {
-        setImportWarning(
-          'No phone numbers were detected in this export. You can still import all participants.'
-        );
-      }
-    } catch (error) {
-      setState('FAILED');
-      const fallback = 'Could not read this WhatsApp export. Try another .txt or .zip file.';
-      setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
-    } finally {
-      setAnalyzingWhatsAppFile(false);
-    }
-  }, [isWhatsAppAsset, readWhatsAppTextAsset]);
+  }, [isWhatsAppAsset]);
 
   const startWhatsAppImport = useCallback(async () => {
     if (!asset) return;
     if (analyzingWhatsAppFile) {
-      setState('FAILED');
       setErrorMessage('Still reading the WhatsApp file. Please wait a moment and try again.');
+      return;
+    }
+    let analyzedRawText: string | null = null;
+    let analyzedSenderPhones: WhatsAppSenderPhone[] | null = null;
+    if (!includeOtherParticipants && !whatsAppTextCache) {
+      const analyzed = await analyzeWhatsAppAsset(asset);
+      if (!analyzed) return;
+      analyzedRawText = analyzed.rawText;
+      analyzedSenderPhones = analyzed.senderPhones;
+    }
+    const senderPhonesForSelection = analyzedSenderPhones ?? availableSenderPhones;
+    if (!includeOtherParticipants && senderPhonesForSelection.length === 0) {
+      setErrorMessage('No phone numbers were detected. Switch to "Include all" to import this thread.');
       return;
     }
     if (
       !includeOtherParticipants &&
-      availableSenderPhones.length > 0 &&
+      senderPhonesForSelection.length > 0 &&
       selectedSenderPhones.length === 0
     ) {
-      setState('FAILED');
       setErrorMessage('Select at least one phone number or choose "Include all".');
       return;
     }
@@ -395,7 +415,7 @@ export function ImportTabScreen() {
     setProgressLabel('Reading WhatsApp export...');
 
     try {
-      const rawText = whatsAppTextCache ?? (await readWhatsAppTextAsset(asset));
+      const rawText = analyzedRawText ?? whatsAppTextCache ?? (await readWhatsAppTextAsset(asset));
       if (!whatsAppTextCache) {
         setWhatsAppTextCache(rawText);
       }
@@ -481,6 +501,7 @@ export function ImportTabScreen() {
     includeOtherParticipants,
     analyzingWhatsAppFile,
     whatsAppCardOutput,
+    analyzeWhatsAppAsset,
     readWhatsAppTextAsset,
     router,
     selectedSenderPhones,
@@ -514,6 +535,24 @@ export function ImportTabScreen() {
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
     }
   }, [asset, importKind, isImage, startWhatsAppImport]);
+
+  useEffect(() => {
+    if (importKind !== 'whatsapp') return;
+    if (state !== 'SELECTED') return;
+    if (!asset) return;
+    if (includeOtherParticipants) return;
+    if (whatsAppTextCache) return;
+    if (analyzingWhatsAppFile) return;
+    void analyzeWhatsAppAsset(asset);
+  }, [
+    importKind,
+    state,
+    asset,
+    includeOtherParticipants,
+    whatsAppTextCache,
+    analyzingWhatsAppFile,
+    analyzeWhatsAppAsset,
+  ]);
 
   if (state === 'EMPTY') {
     return (
@@ -553,13 +592,19 @@ export function ImportTabScreen() {
             <View style={styles.toggleRow}>
               <Pressable
                 style={[styles.smallToggle, !includeOtherParticipants && styles.smallToggleActive]}
-                onPress={() => setIncludeOtherParticipants(false)}
+                onPress={() => {
+                  setErrorMessage(null);
+                  setIncludeOtherParticipants(false);
+                }}
               >
                 <Text style={styles.smallToggleLabel}>Selected numbers</Text>
               </Pressable>
               <Pressable
                 style={[styles.smallToggle, includeOtherParticipants && styles.smallToggleActive]}
-                onPress={() => setIncludeOtherParticipants(true)}
+                onPress={() => {
+                  setErrorMessage(null);
+                  setIncludeOtherParticipants(true);
+                }}
               >
                 <Text style={styles.smallToggleLabel}>Include all</Text>
               </Pressable>
@@ -568,7 +613,7 @@ export function ImportTabScreen() {
               <>
                 <Text style={styles.optionLabel}>Select one or more participant phone numbers</Text>
                 {analyzingWhatsAppFile ? (
-                  <Text style={styles.helper}>Scanning chat participants...</Text>
+                  <Text style={styles.helper}>Unzipping and reading export to find participant numbers...</Text>
                 ) : availableSenderPhones.length === 0 ? (
                   <Text style={styles.helper}>
                     No phone numbers detected in this file. Switch to "Include all" to import the full thread.
@@ -613,6 +658,7 @@ export function ImportTabScreen() {
                 Word cards are generated from unique words in the selected messages.
               </Text>
             )}
+            {errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
           </View>
         )}
         <View style={styles.row}>
