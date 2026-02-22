@@ -163,12 +163,14 @@ export function FlashSessionScreen() {
     remaining,
     swipeLeft,
     swipeRight,
+    swipeUp,
     chooseOption,
     advanceToNextCard,
     startSession,
     startNewSession,
     stopSession,
     getClearTimeMs,
+    spacedRepetitionDebug,
   } = useSession();
 
   const [customWords, setCustomWords] = React.useState<Word[]>([]);
@@ -186,6 +188,7 @@ export function FlashSessionScreen() {
   const [playbackRate, setPlaybackRateState] = React.useState<number>(0.5);
   const [showGestureDemo, setShowGestureDemo] = React.useState(false);
   const [practiceLanguage, setPracticeLanguage] = React.useState<PracticeLanguage>('pt');
+  const [showSchedulerDebug, setShowSchedulerDebug] = React.useState(false);
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userHasEnabledAudioRef = useRef(false);
@@ -748,6 +751,7 @@ export function FlashSessionScreen() {
           selectedChoiceIndex={state.selectedChoiceIndex}
           onSwipeLeft={handleSwipeLeft}
           onSwipeRight={swipeRight}
+          onSwipeUp={swipeUp}
           onChooseOption={chooseOption}
           onAdvance={advanceToNextCard}
           onPlayAudio={handlePlayAudio}
@@ -756,6 +760,39 @@ export function FlashSessionScreen() {
           onCycleSpeed={handleCycleSpeed}
           disabled={state.cleared || stopModalVisible || showGestureDemo}
         />
+      </View>
+      <View style={[styles.debugPanelWrap, { top: (insets.top || 0) + 62 }]}>
+        <Pressable
+          style={({ pressed }) => [styles.debugToggle, pressed && styles.debugTogglePressed]}
+          onPress={() => setShowSchedulerDebug((prev) => !prev)}
+        >
+          <Text style={styles.debugToggleLabel}>
+            {showSchedulerDebug ? 'Hide debug' : 'Show debug'}
+          </Text>
+        </Pressable>
+        {showSchedulerDebug && (
+          <View style={styles.debugPanel}>
+            <Text style={styles.debugTitle}>Scheduler</Text>
+            <Text style={styles.debugLine}>
+              Due selected: {spacedRepetitionDebug.stats.selectedDue} / available {spacedRepetitionDebug.stats.dueAvailable}
+            </Text>
+            <Text style={styles.debugLine}>
+              New selected: {spacedRepetitionDebug.stats.selectedNew} / available {spacedRepetitionDebug.stats.newAvailable}
+            </Text>
+            <Text style={styles.debugLine}>
+              Card dueAt: {spacedRepetitionDebug.currentCardSchedule?.dueAt ?? 'new'}
+            </Text>
+            <Text style={styles.debugLine}>
+              Interval days: {spacedRepetitionDebug.currentCardSchedule?.intervalDays ?? 0}
+            </Text>
+            <Text style={styles.debugLine}>
+              Ease: {spacedRepetitionDebug.currentCardSchedule?.ease?.toFixed(2) ?? '2.50'}
+            </Text>
+            <Text style={styles.debugLine}>
+              Last review: {spacedRepetitionDebug.lastReview?.grade ?? '-'}
+            </Text>
+          </View>
+        )}
       </View>
       <GestureDemoOverlay
         visible={showGestureDemo}
@@ -1044,5 +1081,47 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '600',
+  },
+  debugPanelWrap: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 25,
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  debugToggle: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(5,11,28,0.82)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  debugTogglePressed: {
+    opacity: 0.92,
+  },
+  debugToggleLabel: {
+    color: theme.textPrimary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  debugPanel: {
+    width: 250,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(5,11,28,0.92)',
+    padding: 10,
+    gap: 4,
+  },
+  debugTitle: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  debugLine: {
+    color: theme.textMuted,
+    fontSize: 12,
   },
 });

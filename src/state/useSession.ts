@@ -3,6 +3,14 @@ import type { SessionState } from '../types/session';
 import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
 import { getShuffledWordIds, getDistractors, getWordsForLanguage } from '../data/words';
+import { getSpacedRepetitionMap, saveSpacedRepetitionMap } from '../lib/storage';
+import {
+  applyReviewGrade,
+  createDefaultSchedule,
+  isDue,
+  type CardSchedule,
+  type ReviewGrade,
+} from '../lib/spacedRepetition';
 
 type StartSessionOptions = {
   cardCount: number;
@@ -11,6 +19,12 @@ type StartSessionOptions = {
 };
 
 type StartSessionInput = number | StartSessionOptions;
+type SessionSelectionStats = {
+  dueAvailable: number;
+  newAvailable: number;
+  selectedDue: number;
+  selectedNew: number;
+};
 
 function getRemaining(state: SessionState): number {
   return state.deckCount - state.correctSet.size;
@@ -30,6 +44,7 @@ function createInitialStateFromDeck(deck: Word[]): SessionState {
     cleared: isEmpty,
     currentCardId: queue[0] ?? null,
     uiState: 'PROMPT',
+    currentCardWasGuess: false,
   };
 }
 
@@ -79,14 +94,61 @@ function sanitizeCustomWords(words: Word[]): Word[] {
   return out;
 }
 
-function buildSessionDeck(options: StartSessionOptions): Word[] {
+async function buildSessionDeck(options: StartSessionOptions): Promise<{
+  deck: Word[];
+  schedules: Record<string, CardSchedule>;
+  selectionStats: SessionSelectionStats;
+}> {
+  const nowMs = Date.now();
   const defaultDeck = getWordsForLanguage(options.language ?? 'pt');
+  const schedules = await getSpacedRepetitionMap(options.language ?? 'pt');
   const byId = new Map(defaultDeck.map((word) => [word.id, word]));
-  const defaultWords = getShuffledWordIds(options.cardCount)
+
+  const selectedByShuffle = getShuffledWordIds()
     .map((id) => byId.get(id))
     .filter((word): word is Word => word != null);
+  const dueWords: Word[] = [];
+  const newWords: Word[] = [];
+  const futureWords: Word[] = [];
+  for (const word of selectedByShuffle) {
+    const schedule = schedules[word.id];
+    if (!schedule) {
+      newWords.push(word);
+      continue;
+    }
+    if (isDue(schedule, nowMs)) {
+      dueWords.push(word);
+      continue;
+    }
+    futureWords.push(word);
+  }
+
+  dueWords.sort((a, b) => (schedules[a.id]?.dueAt ?? 0) - (schedules[b.id]?.dueAt ?? 0));
+  futureWords.sort((a, b) => (schedules[a.id]?.dueAt ?? 0) - (schedules[b.id]?.dueAt ?? 0));
+
+  const selectedDue = dueWords.slice(0, options.cardCount);
+  const remainingAfterDue = Math.max(0, options.cardCount - selectedDue.length);
+  const selectedNew = newWords.slice(0, remainingAfterDue);
+  const remainingAfterNew = Math.max(0, remainingAfterDue - selectedNew.length);
+  const selectedFuture = futureWords.slice(0, remainingAfterNew);
+  const defaultWords = [...selectedDue, ...selectedNew, ...selectedFuture];
+
   const customWords = sanitizeCustomWords(options.customWords ?? []);
-  return shuffleArray([...defaultWords, ...customWords]);
+  const customOrdered = [...customWords].sort((a, b) => {
+    const aSchedule = schedules[a.id] ?? createDefaultSchedule(nowMs);
+    const bSchedule = schedules[b.id] ?? createDefaultSchedule(nowMs);
+    return aSchedule.dueAt - bSchedule.dueAt;
+  });
+  return {
+    deck: shuffleArray([...defaultWords, ...customOrdered]),
+    schedules,
+    selectionStats: {
+      dueAvailable: dueWords.length,
+      newAvailable: newWords.length,
+      selectedDue: selectedDue.length,
+      selectedNew: selectedNew.length,
+    },
+  };
 }
 
 export function useSession() {
@@ -95,20 +157,45 @@ export function useSession() {
   const deckRef = useRef<Word[]>([]);
   const deckByIdRef = useRef<Map<string, Word>>(new Map());
   const previousOptionsRef = useRef<StartSessionOptions | null>(null);
+  const schedulesByIdRef = useRef<Record<string, CardSchedule>>({});
+  const sessionSelectionStatsRef = useRef<SessionSelectionStats>({
+    dueAvailable: 0,
+    newAvailable: 0,
+    selectedDue: 0,
+    selectedNew: 0,
+  });
+  const lastReviewRef = useRef<{ wordId: string; grade: ReviewGrade; schedule: CardSchedule } | null>(null);
+  const startRequestIdRef = useRef(0);
 
   const remaining = state ? getRemaining(state) : 0;
   const currentWord = state?.currentCardId
     ? deckByIdRef.current.get(state.currentCardId) ?? null
     : null;
 
-  const startFromOptions = useCallback((input: StartSessionInput) => {
+  const persistReview = useCallback((wordId: string, grade: ReviewGrade) => {
+    const nowMs = Date.now();
+    const nextSchedule = applyReviewGrade(schedulesByIdRef.current[wordId], grade, nowMs);
+    const nextMap = { ...schedulesByIdRef.current, [wordId]: nextSchedule };
+    schedulesByIdRef.current = nextMap;
+    lastReviewRef.current = { wordId, grade, schedule: nextSchedule };
+    const language = previousOptionsRef.current?.language ?? 'pt';
+    void saveSpacedRepetitionMap(nextMap, language);
+  }, []);
+
+  const startFromOptions = useCallback(async (input: StartSessionInput) => {
+    const requestId = startRequestIdRef.current + 1;
+    startRequestIdRef.current = requestId;
     const options = normalizeStartSessionInput(input);
-    const nextDeck = buildSessionDeck(options);
-    deckRef.current = nextDeck;
-    deckByIdRef.current = new Map(nextDeck.map((word) => [word.id, word]));
+    const { deck, schedules, selectionStats } = await buildSessionDeck(options);
+    if (requestId !== startRequestIdRef.current) return;
+    deckRef.current = deck;
+    deckByIdRef.current = new Map(deck.map((word) => [word.id, word]));
+    schedulesByIdRef.current = schedules;
+    sessionSelectionStatsRef.current = selectionStats;
+    lastReviewRef.current = null;
     previousOptionsRef.current = options;
     clearedAtMs.current = null;
-    setState(createInitialStateFromDeck(nextDeck));
+    setState(createInitialStateFromDeck(deck));
   }, []);
 
   const advanceToNextCard = useCallback(() => {
@@ -127,6 +214,7 @@ export function useSession() {
         ...prev,
         currentCardId: nextId,
         uiState: 'PROMPT',
+        currentCardWasGuess: false,
         selectedChoiceIndex: undefined,
         correctChoiceIndex: undefined,
         choiceOptions: undefined,
@@ -139,11 +227,37 @@ export function useSession() {
       if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
       const id = prev.currentCardId;
       const newQueue = [...prev.queue.filter((x) => x !== id), id];
+      persistReview(id, 'again');
       return {
         ...prev,
         queue: newQueue,
         skippedCount: prev.skippedCount + 1,
         uiState: 'REVEAL_DONT_KNOW',
+        currentCardWasGuess: false,
+      };
+    });
+  }, [persistReview]);
+
+  const swipeUp = useCallback(() => {
+    setState((prev) => {
+      if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
+      const word = deckByIdRef.current.get(prev.currentCardId);
+      const correctEn = normalizeMaybeText(word?.en);
+      if (!correctEn) return prev;
+      const distractors = getDistractors(
+        correctEn,
+        2,
+        prev.currentCardId,
+        deckRef.current
+      );
+      const options = shuffleArray([correctEn, ...distractors]);
+      const correctChoiceIndex = options.indexOf(correctEn);
+      return {
+        ...prev,
+        uiState: 'CHOICES',
+        choiceOptions: options,
+        correctChoiceIndex,
+        currentCardWasGuess: true,
       };
     });
   }, []);
@@ -185,6 +299,7 @@ export function useSession() {
         uiState: 'CHOICES',
         choiceOptions: options,
         correctChoiceIndex,
+        currentCardWasGuess: false,
       };
     });
   }, []);
@@ -204,6 +319,7 @@ export function useSession() {
         const newQueue = prev.queue.filter((x) => x !== id);
         const newCorrectSet = new Set(prev.correctSet);
         newCorrectSet.add(id);
+        persistReview(id, prev.currentCardWasGuess ? 'guess' : 'good');
         const cleared = newCorrectSet.size === prev.deckCount;
         if (cleared) clearedAtMs.current = Date.now();
         return {
@@ -214,12 +330,14 @@ export function useSession() {
           uiState: 'FEEDBACK_CORRECT',
           selectedChoiceIndex: choiceIndex,
           correctChoiceIndex: correctIndex,
+          currentCardWasGuess: false,
           cleared,
         };
       }
 
       const id = prev.currentCardId;
       const newQueue = [...prev.queue.filter((x) => x !== id), id];
+      persistReview(id, 'hard');
       return {
         ...prev,
         queue: newQueue,
@@ -227,12 +345,13 @@ export function useSession() {
         uiState: 'FEEDBACK_WRONG',
         selectedChoiceIndex: choiceIndex,
         correctChoiceIndex: correctIndex,
+        currentCardWasGuess: false,
       };
     });
-  }, []);
+  }, [persistReview]);
 
   const startSession = useCallback((input: StartSessionInput) => {
-    startFromOptions(input);
+    void startFromOptions(input);
   }, [startFromOptions]);
 
   const startNewSession = useCallback((cardCount?: number) => {
@@ -242,7 +361,7 @@ export function useSession() {
       customWords: previous?.customWords ?? [],
       language: previous?.language ?? 'pt',
     };
-    startFromOptions(nextOptions);
+    void startFromOptions(nextOptions);
   }, [startFromOptions]);
 
   const stopSession = useCallback(() => {
@@ -265,12 +384,19 @@ export function useSession() {
     swipeLeft,
     swipeRight,
     chooseOption,
+    swipeUp,
     advanceToNextCard,
     getChoiceOptions,
     startSession,
     startNewSession,
     stopSession,
     getClearTimeMs,
+    spacedRepetitionDebug: {
+      stats: sessionSelectionStatsRef.current,
+      currentCardSchedule:
+        currentWord != null ? schedulesByIdRef.current[currentWord.id] ?? null : null,
+      lastReview: lastReviewRef.current,
+    },
   };
 }
 

@@ -22,4 +22,6 @@ export type SessionState = {
   correctChoiceIndex?: number;
   /** Ordered options for CHOICES (correct at correctChoiceIndex) */
   choiceOptions?: string[];
+  /** True if user entered the answer flow via swipe-up "guess". */
+  currentCardWasGuess?: boolean;
 };

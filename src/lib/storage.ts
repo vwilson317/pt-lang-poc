@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
 import { isPracticeLanguage } from '../types/practiceLanguage';
+import type { CardSchedule } from './spacedRepetition';
 
 const KEY_BEST_CLEAR_MS = 'bestClearMs';
 const KEY_RUNS_COUNT = 'runsCount';
@@ -9,6 +10,7 @@ const KEY_AUDIO_PLAYBACK_RATE = 'audioPlaybackRate';
 const KEY_HAS_SEEN_GESTURE_DEMO = 'hasSeenGestureDemo';
 const KEY_PRACTICE_LANGUAGE = 'practiceLanguage';
 const KEY_CUSTOM_WORDS_LEGACY = 'customWords';
+const KEY_SPACED_REPETITION_PREFIX = 'spacedRepetition:v1:';
 
 export async function getBestClearMs(): Promise<number | null> {
   const raw = await AsyncStorage.getItem(KEY_BEST_CLEAR_MS);
@@ -140,6 +142,65 @@ export async function getHasSeenGestureDemo(): Promise<boolean> {
 
 export async function setHasSeenGestureDemo(): Promise<void> {
   await AsyncStorage.setItem(KEY_HAS_SEEN_GESTURE_DEMO, 'true');
+}
+
+function getSpacedRepetitionKey(language: PracticeLanguage): string {
+  return `${KEY_SPACED_REPETITION_PREFIX}${language}`;
+}
+
+type RawScheduleMap = Record<string, Partial<CardSchedule>>;
+export type SpacedRepetitionMap = Record<string, CardSchedule>;
+
+function toValidSchedule(value: Partial<CardSchedule> | undefined): CardSchedule | null {
+  if (!value) return null;
+  const dueAt = typeof value.dueAt === 'number' ? value.dueAt : Date.now();
+  const intervalDays = typeof value.intervalDays === 'number' ? value.intervalDays : 0;
+  const ease = typeof value.ease === 'number' ? value.ease : 2.5;
+  const repetitions = typeof value.repetitions === 'number' ? value.repetitions : 0;
+  const lapses = typeof value.lapses === 'number' ? value.lapses : 0;
+  const lastReviewedAt =
+    typeof value.lastReviewedAt === 'number' ? value.lastReviewedAt : undefined;
+
+  if (!Number.isFinite(dueAt) || !Number.isFinite(intervalDays) || !Number.isFinite(ease)) {
+    return null;
+  }
+  return {
+    dueAt,
+    intervalDays: Math.max(0, intervalDays),
+    ease: Math.max(1.3, Math.min(3.0, ease)),
+    repetitions: Math.max(0, repetitions),
+    lapses: Math.max(0, lapses),
+    lastReviewedAt,
+  };
+}
+
+export async function getSpacedRepetitionMap(
+  language: PracticeLanguage = 'pt'
+): Promise<SpacedRepetitionMap> {
+  const raw = await AsyncStorage.getItem(getSpacedRepetitionKey(language));
+  if (raw == null) return {};
+  try {
+    const parsed = JSON.parse(raw) as RawScheduleMap;
+    if (parsed == null || typeof parsed !== 'object') return {};
+    const out: SpacedRepetitionMap = {};
+    for (const [id, schedule] of Object.entries(parsed)) {
+      const normalizedId = normalizeMaybeString(id);
+      if (!normalizedId) continue;
+      const valid = toValidSchedule(schedule);
+      if (!valid) continue;
+      out[normalizedId] = valid;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export async function saveSpacedRepetitionMap(
+  schedules: SpacedRepetitionMap,
+  language: PracticeLanguage = 'pt'
+): Promise<void> {
+  await AsyncStorage.setItem(getSpacedRepetitionKey(language), JSON.stringify(schedules));
 }
 
 // --- Per-word audio adaptation (optional, local only) ---
