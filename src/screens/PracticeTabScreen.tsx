@@ -3,10 +3,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FlashSessionScreen } from './FlashSessionScreen';
 import { SentencePracticeScreen } from './SentencePracticeScreen';
+import { PhrasePracticeScreen } from './PhrasePracticeScreen';
 import { ensureV11Initialized, getSelectedDeck } from '../lib/v11Storage';
 import { theme } from '../theme';
 
-type Mode = 'words' | 'sentences';
+type Mode = 'words' | 'sentences' | 'phrases';
 
 export function PracticeTabScreen() {
   const params = useLocalSearchParams<{ mode?: string; clipId?: string }>();
@@ -22,8 +23,8 @@ export function PracticeTabScreen() {
   }, []);
 
   useEffect(() => {
-    if (params.mode === 'sentences') {
-      setMode('sentences');
+    if (params.mode === 'sentences' || params.mode === 'phrases') {
+      setMode(params.mode);
     }
   }, [params.mode]);
 
@@ -42,9 +43,40 @@ export function PracticeTabScreen() {
           <Pressable style={styles.modeBtn} onPress={() => setMode('sentences')}>
             <Text style={styles.modeLabelMuted}>Sentences</Text>
           </Pressable>
+          <Pressable style={styles.modeBtn} onPress={() => setMode('phrases')}>
+            <Text style={styles.modeLabelMuted}>Phrases</Text>
+          </Pressable>
           <Text style={styles.deckLabel}>Adding to: {deckName}</Text>
         </View>
         <FlashSessionScreen />
+      </View>
+    );
+  }
+
+  if (mode === 'phrases') {
+    return (
+      <View style={styles.fill}>
+        <View style={styles.modeBar}>
+          <Pressable style={styles.modeBtn} onPress={() => setMode('words')}>
+            <Text style={styles.modeLabelMuted}>Words</Text>
+          </Pressable>
+          <Pressable style={styles.modeBtn} onPress={() => setMode('sentences')}>
+            <Text style={styles.modeLabelMuted}>Sentences</Text>
+          </Pressable>
+          <Pressable style={[styles.modeBtn, styles.modeBtnActive]}>
+            <Text style={styles.modeLabel}>Phrases</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push('/(tabs)/imports')} style={styles.modeBtn}>
+            <Text style={styles.modeLabelMuted}>Imports</Text>
+          </Pressable>
+        </View>
+        <PhrasePracticeScreen
+          sourceClipId={sourceClipId}
+          onBack={() => {
+            setMode('words');
+            router.replace('/(tabs)/practice');
+          }}
+        />
       </View>
     );
   }
@@ -57,6 +89,9 @@ export function PracticeTabScreen() {
         </Pressable>
         <Pressable style={[styles.modeBtn, styles.modeBtnActive]}>
           <Text style={styles.modeLabel}>Sentences</Text>
+        </Pressable>
+        <Pressable style={styles.modeBtn} onPress={() => setMode('phrases')}>
+          <Text style={styles.modeLabelMuted}>Phrases</Text>
         </Pressable>
         <Pressable
           onPress={() => router.push('/(tabs)/imports')}

@@ -6,7 +6,7 @@ export type Deck = {
   updatedAt: number;
 };
 
-export type CardType = 'word' | 'sentence';
+export type CardType = 'word' | 'sentence' | 'phrase';
 
 export type FlashCardRecord = {
   id: string;
@@ -14,6 +14,7 @@ export type FlashCardRecord = {
   cardType: CardType;
   front: string;
   back: string;
+  phraseId?: string;
   wordType?: string;
   sourceClipId?: string;
   sourceSegmentId?: string;
