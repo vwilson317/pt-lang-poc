@@ -16,6 +16,12 @@ const SYSTEM_NOISE_RE =
   /(deleted this message|this message was edited|messages and calls are end-to-end encrypted|changed the group description|created group|added|left|joined using this group's invite link)/i;
 const URL_RE = /(https?:\/\/\S+|www\.\S+)/gi;
 const URL_DETECT_RE = /(https?:\/\/\S+|www\.\S+)/i;
+const SELF_SENDER_LABELS = new Set([
+  'you',
+  'voce',
+  'você',
+  'eu',
+]);
 
 function normalizePhone(value: string): string {
   return value.replace(/[^\d]/g, '');
@@ -28,6 +34,19 @@ function isSamePhone(a: string, b: string): boolean {
   if (left === right) return true;
   const suffixLen = 8;
   return left.slice(-suffixLen) === right.slice(-suffixLen);
+}
+
+function normalizeSenderLabel(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isLikelySelfSenderLabel(sender: string): boolean {
+  const normalized = normalizeSenderLabel(sender);
+  return SELF_SENDER_LABELS.has(normalized);
 }
 
 function parseLineStart(line: string): { sender: string; text: string } | null {
@@ -111,8 +130,16 @@ export function buildWhatsAppImport(
   includeOtherParticipants: boolean
 ): WhatsAppImportResult {
   const messages = parseWhatsAppMessages(rawText);
-  const mine = messages.filter((message) => isSamePhone(message.sender, myPhoneNumber));
-  const base = includeOtherParticipants ? messages : mine;
+  const mineByPhone = messages.filter((message) => isSamePhone(message.sender, myPhoneNumber));
+  const mineBySenderLabel =
+    mineByPhone.length > 0
+      ? mineByPhone
+      : messages.filter((message) => isLikelySelfSenderLabel(message.sender));
+  const mine = mineBySenderLabel;
+  const usedFallbackAllParticipants =
+    !includeOtherParticipants && mine.length === 0 && messages.length > 0;
+  const base =
+    includeOtherParticipants || usedFallbackAllParticipants ? messages : mine;
 
   const sentenceCandidates = base.flatMap((message) => splitSentences(message.text));
   const qualityFiltered = sentenceCandidates.filter((sentence) => {
@@ -143,8 +170,14 @@ export function buildWhatsAppImport(
 
   const warningBits: string[] = [];
   if (!messages.length) warningBits.push('No WhatsApp messages were recognized in this file.');
-  if (!mine.length) {
-    warningBits.push('No messages matched your phone number. Try adding country code.');
+  if (!mineByPhone.length && !includeOtherParticipants) {
+    if (usedFallbackAllParticipants) {
+      warningBits.push(
+        'No messages matched your phone number, so we used all participant messages from this thread.'
+      );
+    } else {
+      warningBits.push('No messages matched your phone number. Try adding country code.');
+    }
   }
   const droppedCount = sentenceCandidates.length - deduped.length;
   if (droppedCount > 0) warningBits.push(`${droppedCount} low-quality or duplicate lines were skipped.`);
