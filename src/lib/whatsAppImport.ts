@@ -183,8 +183,12 @@ export function buildWhatsAppImport(
       ? messages.filter((message) => isLikelySelfSenderLabel(message.sender))
       : [];
   const mine = mineByPhone.length > 0 ? mineByPhone : mineBySenderLabel;
+  const canFallbackToAllParticipants = normalizedSelectedPhones.length === 0;
   const usedFallbackAllParticipants =
-    !includeOtherParticipants && mine.length === 0 && messages.length > 0;
+    !includeOtherParticipants &&
+    canFallbackToAllParticipants &&
+    mine.length === 0 &&
+    messages.length > 0;
   const base =
     includeOtherParticipants || usedFallbackAllParticipants ? messages : mine;
 
