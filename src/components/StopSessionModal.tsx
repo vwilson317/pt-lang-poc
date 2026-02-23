@@ -18,6 +18,9 @@ export function StopSessionModal({
   onStopAndCopy,
 }: StopSessionModalProps) {
   const hasMissedWords = uniqueMissCount > 0;
+  const exportSummary = hasMissedWords
+    ? `${uniqueMissCount} skipped/wrong word${uniqueMissCount === 1 ? '' : 's'} will be copied to your clipboard.`
+    : 'No skipped or wrong words to export from this session.';
 
   return (
     <Modal
@@ -30,7 +33,8 @@ export function StopSessionModal({
         <BlurView intensity={46} tint="dark" style={styles.blurLayer} />
         <View style={styles.scrim} />
         <View style={styles.box}>
-          <Text style={styles.title}>Stop session?</Text>
+          <Text style={styles.title}>End session?</Text>
+          <Text style={styles.subtitle}>{exportSummary}</Text>
           <View style={styles.buttons}>
             <TouchableOpacity
               style={[styles.button, styles.primary]}
@@ -41,7 +45,9 @@ export function StopSessionModal({
                 {hasMissedWords && (
                   <FontAwesome5 name="copy" size={15} color={theme.textPrimary} />
                 )}
-                <Text style={styles.primaryText}>Stop</Text>
+                <Text style={styles.primaryText}>
+                  {hasMissedWords ? 'End & Copy Export' : 'End Session'}
+                </Text>
               </View>
             </TouchableOpacity>
             <TouchableOpacity
@@ -49,7 +55,7 @@ export function StopSessionModal({
               onPress={onResume}
               activeOpacity={0.8}
             >
-              <Text style={styles.secondaryText}>Cancel</Text>
+              <Text style={styles.secondaryText}>Keep Practicing</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -85,6 +91,13 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     color: theme.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: theme.textMuted,
     marginBottom: 18,
     textAlign: 'center',
   },
