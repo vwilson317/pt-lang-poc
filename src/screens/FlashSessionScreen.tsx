@@ -63,6 +63,8 @@ type MissedWordExportItem = {
   term: string;
   en: string;
   pronHintEn?: string;
+  skipped: number;
+  incorrect: number;
   misses: number;
 };
 
@@ -76,42 +78,99 @@ function normalizeDefinitionToken(value: string | undefined): string | undefined
   return normalized ? normalized : undefined;
 }
 
+function stripCustomLinePrefix(value: string): string {
+  return value
+    .trim()
+    .replace(/^\d+[.)]\s+/, '')
+    .replace(/^[-*•]\s+/, '')
+    .trim();
+}
+
+function parseStructuredCustomLine(cleanedLine: string): ParsedCustomEntry | null {
+  const cleaned = cleanedLine.trim();
+  if (!cleaned) return null;
+
+  const colonOrEqualsMatch = cleaned.match(/^(.+?)\s*[:=]\s*(.+)$/);
+  if (colonOrEqualsMatch) {
+    const term = normalizeWordToken(colonOrEqualsMatch[1]);
+    if (!term) return null;
+    return {
+      term,
+      en: normalizeDefinitionToken(colonOrEqualsMatch[2]),
+    };
+  }
+
+  const spacedDashMatch = cleaned.match(/^(.+?)\s[-–—]\s(.+)$/);
+  if (spacedDashMatch) {
+    const term = normalizeWordToken(spacedDashMatch[1]);
+    if (!term) return null;
+    return {
+      term,
+      en: normalizeDefinitionToken(spacedDashMatch[2]),
+    };
+  }
+
+  return null;
+}
+
 function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
-  const tokens = raw.match(/[^\s,;]+/g) ?? [];
   const parsed: ParsedCustomEntry[] = [];
   const seen = new Set<string>();
+  const pushEntry = (entry: ParsedCustomEntry) => {
+    const term = normalizeWordToken(entry.term);
+    if (!term) return;
+    const key = term.toLocaleLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    parsed.push({ term, en: normalizeDefinitionToken(entry.en) });
+  };
 
-  for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-    if (token === ':' || token === '=' || token === '-') continue;
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+  for (const line of lines) {
+    const cleanedLine = stripCustomLinePrefix(line);
+    if (!cleanedLine) continue;
 
-    let termToken = token;
-    let enToken: string | undefined;
-
-    const inlineSep = token.match(/^(.+?)([:=])(.*)$/);
-    if (inlineSep) {
-      termToken = inlineSep[1];
-      enToken = normalizeDefinitionToken(inlineSep[3]);
-      if (!enToken && tokens[i + 1] && ![':', '=', '-'].includes(tokens[i + 1])) {
-        enToken = normalizeDefinitionToken(tokens[i + 1]);
-        i += 1;
-      }
-    } else if ((tokens[i + 1] === ':' || tokens[i + 1] === '=') && tokens[i + 2]) {
-      enToken = normalizeDefinitionToken(tokens[i + 2]);
-      i += 2;
-    } else if (tokens[i + 1] === '-' && tokens[i + 2]) {
-      enToken = normalizeDefinitionToken(tokens[i + 2]);
-      i += 2;
+    const structured = parseStructuredCustomLine(cleanedLine);
+    if (structured) {
+      pushEntry(structured);
+      continue;
     }
 
-    const term = normalizeWordToken(termToken);
-    if (!term) continue;
+    const tokens = cleanedLine.match(/[^\s,;]+/g) ?? [];
+    for (let i = 0; i < tokens.length; i += 1) {
+      const token = tokens[i];
+      if (token === ':' || token === '=' || token === '-' || token === '–' || token === '—') {
+        continue;
+      }
 
-    const key = term.toLocaleLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
+      let termToken = token;
+      let enToken: string | undefined;
 
-    parsed.push({ term, en: enToken });
+      const inlineSep = token.match(/^(.+?)([:=])(.*)$/);
+      if (inlineSep) {
+        termToken = inlineSep[1];
+        enToken = normalizeDefinitionToken(inlineSep[3]);
+        if (
+          !enToken &&
+          tokens[i + 1] &&
+          ![':', '=', '-', '–', '—'].includes(tokens[i + 1])
+        ) {
+          enToken = normalizeDefinitionToken(tokens[i + 1]);
+          i += 1;
+        }
+      } else if ((tokens[i + 1] === ':' || tokens[i + 1] === '=') && tokens[i + 2]) {
+        enToken = normalizeDefinitionToken(tokens[i + 2]);
+        i += 2;
+      } else if (
+        (tokens[i + 1] === '-' || tokens[i + 1] === '–' || tokens[i + 1] === '—') &&
+        tokens[i + 2]
+      ) {
+        enToken = normalizeDefinitionToken(tokens[i + 2]);
+        i += 2;
+      }
+
+      pushEntry({ term: termToken, en: enToken });
+    }
   }
 
   return parsed;
@@ -124,7 +183,7 @@ function stringifyParsedCustomInput(entries: ParsedCustomEntry[]): string {
 }
 
 function buildMissedWordsListExport(items: MissedWordExportItem[]): string {
-  const ordered = [...items].sort((a, b) => a.term.localeCompare(b.term));
+  const ordered = [...items].sort((a, b) => b.misses - a.misses || a.term.localeCompare(b.term));
   if (ordered.length === 0) return 'No missed words this session.';
   return ordered.map((item) => `${item.term} - ${item.en}`).join('\n');
 }
@@ -488,28 +547,36 @@ export function FlashSessionScreen() {
   const [bestTimeMs, setBestTimeMs] = React.useState<number | null>(null);
 
   const missedWordExportItems = React.useMemo(() => {
-    const combinedCountsById: Record<string, number> = {};
-    for (const [id, count] of Object.entries(skippedCountsById)) {
-      combinedCountsById[id] = (combinedCountsById[id] ?? 0) + count;
-    }
-    for (const [id, count] of Object.entries(incorrectCountsById)) {
-      combinedCountsById[id] = (combinedCountsById[id] ?? 0) + count;
-    }
-    return Object.entries(combinedCountsById)
-      .map(([id, misses]) => {
-        const word = getWordByIdForLanguage(id, practiceLanguage);
-        if (!word?.en) return null;
+    const allMissedIds = new Set<string>([
+      ...Object.keys(skippedCountsById),
+      ...Object.keys(incorrectCountsById),
+    ]);
+    return Array.from(allMissedIds)
+      .map((id) => {
+        const skipped = skippedCountsById[id] ?? 0;
+        const incorrect = incorrectCountsById[id] ?? 0;
+        const misses = skipped + incorrect;
+        if (misses <= 0) return null;
+
+        const builtInWord = getWordByIdForLanguage(id, practiceLanguage);
+        const customWord = builtInWord ? null : customWords.find((word) => word.id === id);
+        const word = builtInWord ?? customWord;
+        if (!word?.term) return null;
+
+        const en = normalizeDefinitionToken(word.en) ?? word.term;
         return {
           id,
           term: word.term,
-          en: word.en,
+          en,
           pronHintEn: word.pronHintEn,
+          skipped,
+          incorrect,
           misses,
         } as MissedWordExportItem;
       })
       .filter((item): item is MissedWordExportItem => item != null)
       .sort((a, b) => b.misses - a.misses || a.term.localeCompare(b.term));
-  }, [incorrectCountsById, practiceLanguage, skippedCountsById]);
+  }, [customWords, incorrectCountsById, practiceLanguage, skippedCountsById]);
   const uniqueMissCount = missedWordExportItems.length;
 
   const handleStartSession = useCallback(
@@ -556,7 +623,7 @@ export function FlashSessionScreen() {
       await Clipboard.setStringAsync(exportText);
       const toastMessage =
         uniqueMissCount > 0
-          ? `Copied ${uniqueMissCount} missed words to clipboard`
+          ? `Copied ${uniqueMissCount} skipped/wrong words to clipboard`
           : 'Copied to clipboard';
       showNativeCopyToast(toastMessage);
     } catch {
