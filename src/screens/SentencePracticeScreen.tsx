@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import DraggableFlatList, {
+  type RenderItemParams,
+} from 'react-native-draggable-flatlist';
 import { theme } from '../theme';
 import { addCards, getClips, getSelectedDeckId, getSentenceCards } from '../lib/v11Storage';
 import type { ClipRecord, FlashCardRecord } from '../types/v11';
@@ -17,13 +20,36 @@ function tokenizeSentence(sentence: string): string[] {
     .filter(Boolean);
 }
 
+type SentencePill = {
+  id: string;
+  token: string;
+};
+
+function shuffleArray<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function normalizeSentenceForCompare(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9à-öø-ÿ'’\s]/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function SentencePracticeScreen({ sourceClipId, onBack }: Props) {
   const [cards, setCards] = useState<FlashCardRecord[]>([]);
   const [clipsById, setClipsById] = useState<Record<string, ClipRecord>>({});
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
-  const [typed, setTyped] = useState('');
+  const [pills, setPills] = useState<SentencePill[]>([]);
   const [checked, setChecked] = useState(false);
+  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
   const [stats, setStats] = useState({ right: 0, wrong: 0 });
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -51,7 +77,26 @@ export function SentencePracticeScreen({ sourceClipId, onBack }: Props) {
 
   const current = cards[index] ?? null;
   const isDone = !loading && cards.length > 0 && index >= cards.length;
-  const tokens = useMemo(() => tokenizeSentence(current?.front ?? ''), [current?.front]);
+  const sourceTokens = useMemo(() => tokenizeSentence(current?.front ?? ''), [current?.front]);
+  const targetTokens = useMemo(() => tokenizeSentence(current?.back ?? ''), [current?.back]);
+
+  useEffect(() => {
+    if (!current) {
+      setPills([]);
+      setChecked(false);
+      setIsCorrect(null);
+      return;
+    }
+    const nextPills = targetTokens.map((token, tokenIndex) => ({
+      id: `${current.id}-${tokenIndex}-${token}`,
+      token,
+    }));
+    setPills(shuffleArray(nextPills));
+    setChecked(false);
+    setIsCorrect(null);
+    setSelectedWord(null);
+    setFeedback(null);
+  }, [current, targetTokens]);
 
   const tokenTranslation = useMemo(() => {
     if (!current?.sourceClipId || !current.sourceSegmentId || !selectedWord) return undefined;
@@ -62,22 +107,27 @@ export function SentencePracticeScreen({ sourceClipId, onBack }: Props) {
 
   const handleCheck = useCallback(() => {
     if (!current) return;
+    const arranged = pills.map((pill) => pill.token).join(' ');
+    const matches =
+      normalizeSentenceForCompare(arranged) === normalizeSentenceForCompare(current.back);
+    setIsCorrect(matches);
     setChecked(true);
-  }, [current]);
+  }, [current, pills]);
 
   const moveNext = useCallback(
-    (correct: boolean) => {
+    () => {
+      if (isCorrect == null) return;
       setStats((prev) => ({
-        right: prev.right + (correct ? 1 : 0),
-        wrong: prev.wrong + (correct ? 0 : 1),
+        right: prev.right + (isCorrect ? 1 : 0),
+        wrong: prev.wrong + (isCorrect ? 0 : 1),
       }));
-      setTyped('');
       setChecked(false);
+      setIsCorrect(null);
       setSelectedWord(null);
       setFeedback(null);
       setIndex((prev) => prev + 1);
     },
-    []
+    [isCorrect]
   );
 
   const handleExtractWord = useCallback(async () => {
@@ -128,7 +178,8 @@ export function SentencePracticeScreen({ sourceClipId, onBack }: Props) {
             setIndex(0);
             setStats({ right: 0, wrong: 0 });
             setChecked(false);
-            setTyped('');
+            setIsCorrect(null);
+            setPills([]);
             setSelectedWord(null);
           }}
         >
@@ -156,47 +207,64 @@ export function SentencePracticeScreen({ sourceClipId, onBack }: Props) {
         </Pressable>
       </View>
       <Text style={styles.sentence}>{current.front}</Text>
-      <View style={styles.tokenRow}>
-        {tokens.map((token, tokenIndex) => {
+
+      <Text style={styles.sectionLabel}>Source words (tap to extract)</Text>
+      <View style={styles.sourceTokenRow}>
+        {sourceTokens.map((token, tokenIndex) => {
           const selected = selectedWord?.toLowerCase() === token.toLowerCase();
           return (
             <Pressable
               key={`${token}-${tokenIndex}`}
-              style={[styles.tokenChip, selected && styles.tokenChipSelected]}
+              style={[styles.sourceTokenChip, selected && styles.sourceTokenChipSelected]}
               onPress={() => setSelectedWord(token)}
             >
-              <Text style={styles.tokenText}>{token}</Text>
+              <Text style={styles.sourceTokenText}>{token}</Text>
             </Pressable>
           );
         })}
       </View>
-      <TextInput
-        value={typed}
-        onChangeText={setTyped}
-        style={styles.input}
-        placeholder="Type the English translation..."
-        placeholderTextColor={theme.textMuted}
-        autoCorrect={false}
-        autoCapitalize="none"
-        returnKeyType="done"
-        onSubmitEditing={handleCheck}
-      />
+
+      <Text style={styles.sectionLabel}>Drag translation pills into the correct order</Text>
+      <View style={styles.dragBoard}>
+        <DraggableFlatList
+          data={pills}
+          onDragEnd={({ data }) => setPills(data)}
+          keyExtractor={(item) => item.id}
+          activationDistance={12}
+          scrollEnabled={false}
+          contentContainerStyle={styles.dragList}
+          renderItem={({ item, drag, isActive }: RenderItemParams<SentencePill>) => (
+            <Pressable
+              onLongPress={drag}
+              delayLongPress={120}
+              style={[styles.dragPill, isActive && styles.dragPillActive]}
+            >
+              <Text style={styles.dragPillText}>{item.token}</Text>
+            </Pressable>
+          )}
+        />
+      </View>
+
       {!checked ? (
-        <Pressable style={styles.primaryButton} onPress={handleCheck}>
+        <Pressable
+          style={[styles.primaryButton, pills.length === 0 && styles.buttonDisabled]}
+          onPress={handleCheck}
+          disabled={pills.length === 0}
+        >
           <Text style={styles.primaryLabel}>Check</Text>
         </Pressable>
       ) : (
         <View style={styles.answerWrap}>
-          <Text style={styles.answerLabel}>Model answer</Text>
+          <Text style={[styles.resultLabel, isCorrect ? styles.resultCorrect : styles.resultWrong]}>
+            {isCorrect ? 'Correct' : 'Not quite'}
+          </Text>
+          <Text style={styles.answerLabel}>Expected order</Text>
           <Text style={styles.answerText}>{current.back}</Text>
-          <View style={styles.markRow}>
-            <Pressable style={[styles.secondaryButton, styles.markButton]} onPress={() => moveNext(false)}>
-              <Text style={styles.secondaryLabel}>Wrong</Text>
-            </Pressable>
-            <Pressable style={[styles.primaryButton, styles.markButton]} onPress={() => moveNext(true)}>
-              <Text style={styles.primaryLabel}>Right</Text>
-            </Pressable>
-          </View>
+          <Text style={styles.answerLabel}>Your order</Text>
+          <Text style={styles.answerText}>{pills.map((pill) => pill.token).join(' ')}</Text>
+          <Pressable style={styles.primaryButton} onPress={moveNext}>
+            <Text style={styles.primaryLabel}>Next</Text>
+          </Pressable>
           {selectedWord && (
             <Pressable style={styles.extractButton} onPress={() => void handleExtractWord()}>
               <Text style={styles.extractLabel}>Extract Word</Text>
@@ -255,12 +323,18 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     fontWeight: '700',
   },
-  tokenRow: {
+  sectionLabel: {
+    color: theme.textMuted,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  sourceTokenRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  tokenChip: {
+  sourceTokenChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 12,
@@ -268,25 +342,44 @@ const styles = StyleSheet.create({
     borderColor: theme.stroke,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
-  tokenChipSelected: {
+  sourceTokenChipSelected: {
     borderColor: '#FFD166',
     backgroundColor: 'rgba(255,209,102,0.2)',
   },
-  tokenText: {
+  sourceTokenText: {
     color: theme.textPrimary,
     fontSize: 14,
     fontWeight: '600',
   },
-  input: {
-    width: '100%',
-    minHeight: 50,
-    borderRadius: 14,
+  dragBoard: {
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    color: theme.textPrimary,
-    fontSize: 16,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    minHeight: 80,
+  },
+  dragList: {
+    padding: 10,
+    gap: 8,
+  },
+  dragPill: {
+    minHeight: 42,
+    borderRadius: 20,
     paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    backgroundColor: 'rgba(106,92,255,0.28)',
+  },
+  dragPillActive: {
+    borderColor: '#C3B8FF',
+    backgroundColor: 'rgba(130,110,255,0.48)',
+  },
+  dragPillText: {
+    color: theme.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
   },
   primaryButton: {
     minHeight: 48,
@@ -295,6 +388,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.brand,
+  },
+  buttonDisabled: {
+    opacity: 0.45,
   },
   primaryLabel: {
     color: theme.textPrimary,
@@ -319,6 +415,16 @@ const styles = StyleSheet.create({
   answerWrap: {
     gap: 10,
   },
+  resultLabel: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  resultCorrect: {
+    color: '#8DF1B1',
+  },
+  resultWrong: {
+    color: '#FF9AAE',
+  },
   answerLabel: {
     color: theme.textMuted,
     fontSize: 12,
@@ -329,13 +435,6 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
     fontSize: 18,
     lineHeight: 24,
-  },
-  markRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  markButton: {
-    flex: 1,
   },
   extractButton: {
     minHeight: 44,
