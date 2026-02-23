@@ -22,37 +22,9 @@ const SYSTEM_NOISE_RE =
   /(deleted this message|this message was edited|messages and calls are end-to-end encrypted|changed the group description|created group|added|left|joined using this group's invite link)/i;
 const URL_RE = /(https?:\/\/\S+|www\.\S+)/gi;
 const URL_DETECT_RE = /(https?:\/\/\S+|www\.\S+)/i;
-const SELF_SENDER_LABELS = new Set([
-  'you',
-  'voce',
-  'você',
-  'eu',
-]);
 
 function normalizePhone(value: string): string {
   return value.replace(/[^\d]/g, '');
-}
-
-function isSamePhone(a: string, b: string): boolean {
-  const left = normalizePhone(a);
-  const right = normalizePhone(b);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  const suffixLen = 8;
-  return left.slice(-suffixLen) === right.slice(-suffixLen);
-}
-
-function normalizeSenderLabel(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
-
-function isLikelySelfSenderLabel(sender: string): boolean {
-  const normalized = normalizeSenderLabel(sender);
-  return SELF_SENDER_LABELS.has(normalized);
 }
 
 function asSenderPhoneCandidate(sender: string): string | null {
@@ -160,37 +132,10 @@ export function listWhatsAppSenderPhones(rawText: string): WhatsAppSenderPhone[]
 }
 
 export function buildWhatsAppImport(
-  rawText: string,
-  selectedPhoneNumbers: string[],
-  includeOtherParticipants: boolean
+  rawText: string
 ): WhatsAppImportResult {
   const messages = parseWhatsAppMessages(rawText);
-  const normalizedSelectedPhones = Array.from(
-    new Set(
-      selectedPhoneNumbers
-        .map((value) => normalizePhone(value))
-        .filter((value) => value.length >= 8)
-    )
-  );
-  const mineByPhone =
-    normalizedSelectedPhones.length > 0
-      ? messages.filter((message) =>
-          normalizedSelectedPhones.some((phone) => isSamePhone(message.sender, phone))
-        )
-      : [];
-  const mineBySenderLabel =
-    normalizedSelectedPhones.length === 0
-      ? messages.filter((message) => isLikelySelfSenderLabel(message.sender))
-      : [];
-  const mine = mineByPhone.length > 0 ? mineByPhone : mineBySenderLabel;
-  const canFallbackToAllParticipants = normalizedSelectedPhones.length === 0;
-  const usedFallbackAllParticipants =
-    !includeOtherParticipants &&
-    canFallbackToAllParticipants &&
-    mine.length === 0 &&
-    messages.length > 0;
-  const base =
-    includeOtherParticipants || usedFallbackAllParticipants ? messages : mine;
+  const base = messages;
 
   const sentenceCandidates = base.flatMap((message) => splitSentences(message.text));
   const qualityFiltered = sentenceCandidates.filter((sentence) => {
@@ -221,40 +166,6 @@ export function buildWhatsAppImport(
 
   const warningBits: string[] = [];
   if (!messages.length) warningBits.push('No WhatsApp messages were recognized in this file.');
-  if (!mineByPhone.length && !includeOtherParticipants && normalizedSelectedPhones.length > 0) {
-    if (usedFallbackAllParticipants) {
-      warningBits.push(
-        'No messages matched the selected phone numbers, so we used all participant messages from this thread.'
-      );
-    } else {
-      warningBits.push('No messages matched the selected phone numbers.');
-    }
-  }
-  if (
-    !includeOtherParticipants &&
-    normalizedSelectedPhones.length === 0 &&
-    !mine.length &&
-    usedFallbackAllParticipants
-  ) {
-    warningBits.push(
-      'No participant phone numbers were selected, so we used all participant messages from this thread.'
-    );
-  }
-  if (
-    !includeOtherParticipants &&
-    normalizedSelectedPhones.length === 0 &&
-    !mine.length &&
-    !usedFallbackAllParticipants
-  ) {
-    warningBits.push(
-      'No participant phone numbers were selected. Select one or more numbers or import all participants.'
-    );
-  }
-  if (!includeOtherParticipants && normalizedSelectedPhones.length === 0 && mine.length > 0) {
-    warningBits.push(
-      'No phone number selected; imported messages matched sender labels such as "You".'
-    );
-  }
   const droppedCount = sentenceCandidates.length - deduped.length;
   if (droppedCount > 0) warningBits.push(`${droppedCount} low-quality or duplicate lines were skipped.`);
 

@@ -42,7 +42,13 @@ export function ClipDetailScreen({ clipId }: Props) {
   }, []);
 
   const studyPack = useMemo(() => (clip ? buildStudyPack(clip) : ''), [clip]);
-  const importCardTypeLabel = clip?.importCardType === 'word' ? 'Words' : 'Sentences';
+  const importCardType = clip?.importCardType ?? 'sentence';
+  const importCardTypeLabel =
+    importCardType === 'word'
+      ? 'Words'
+      : importCardType === 'both'
+      ? 'Sentences + Words'
+      : 'Sentences';
 
   if (!clip) {
     return (
@@ -76,19 +82,46 @@ export function ClipDetailScreen({ clipId }: Props) {
         <Pressable style={styles.secondaryButton} onPress={() => void copy(studyPack)}>
           <Text style={styles.secondaryLabel}>Copy Study Pack</Text>
         </Pressable>
-        <Pressable
-          style={styles.primaryButton}
-          onPress={() =>
-            router.push({
-              pathname: '/(tabs)/practice',
-              params: { mode: clip.importCardType === 'word' ? 'words' : 'sentences', clipId: clip.id },
-            })
-          }
-        >
-          <Text style={styles.primaryLabel}>
-            {clip.importCardType === 'word' ? 'Practice Words' : 'Practice Sentences'}
-          </Text>
-        </Pressable>
+        {importCardType === 'both' ? (
+          <View style={styles.practiceRow}>
+            <Pressable
+              style={[styles.primaryButton, styles.practiceButton]}
+              onPress={() =>
+                router.push({
+                  pathname: '/(tabs)/practice',
+                  params: { mode: 'sentences', clipId: clip.id },
+                })
+              }
+            >
+              <Text style={styles.primaryLabel}>Practice Sentences</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryButton, styles.practiceButton]}
+              onPress={() =>
+                router.push({
+                  pathname: '/(tabs)/practice',
+                  params: { mode: 'words', clipId: clip.id },
+                })
+              }
+            >
+              <Text style={styles.secondaryLabel}>Practice Words</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/practice',
+                params: { mode: importCardType === 'word' ? 'words' : 'sentences', clipId: clip.id },
+              })
+            }
+          >
+            <Text style={styles.primaryLabel}>
+              {importCardType === 'word' ? 'Practice Words' : 'Practice Sentences'}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       <Pressable onPress={() => setShowOriginal((prev) => !prev)} style={styles.sectionHead}>
@@ -196,6 +229,13 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     gap: 8,
+  },
+  practiceRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  practiceButton: {
+    flex: 1,
   },
   primaryButton: {
     minHeight: 46,

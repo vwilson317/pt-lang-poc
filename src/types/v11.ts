@@ -42,7 +42,7 @@ export type ClipRecord = {
   id: string;
   sourceLanguage: 'pt' | 'en';
   targetLanguage: 'en' | 'pt';
-  importCardType?: 'sentence' | 'word';
+  importCardType?: 'sentence' | 'word' | 'both';
   transcriptOriginal: string;
   transcriptTranslated: string;
   segments: ClipSegment[];

@@ -535,6 +535,9 @@ export function FlashSessionScreen() {
   }, []);
 
   const toastBottomOffset = (insets.bottom || 0) + (state && !state.cleared && !stopModalVisible ? 86 : 16);
+  const customEditorBottomOffset =
+    Math.max(insets.bottom || 0, 10) + (state && !state.cleared && !stopModalVisible ? 90 : 18);
+  const customTooltipBottomOffset = customEditorBottomOffset + 56;
 
   const showNativeCopyToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
@@ -581,6 +584,107 @@ export function FlashSessionScreen() {
       getBestClearMs().then(setBestTimeMs);
     }
   }, [state?.cleared]);
+
+  const hudActionButtons = (
+    <View style={styles.hudActionGroup}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.hudActionButton,
+          styles.hudInfoButton,
+          pressed && styles.hudActionButtonPressed,
+        ]}
+        onPress={() => {
+          setShowCustomTooltip((prev) => !prev);
+        }}
+      >
+        <FontAwesome5 name="info-circle" size={13} color={theme.textPrimary} solid />
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [
+          styles.hudActionButton,
+          styles.hudAddButton,
+          pressed && styles.hudActionButtonPressed,
+        ]}
+        onPress={() => {
+          handleToggleCustomEditor();
+        }}
+      >
+        <FontAwesome5 name="plus" size={13} color={theme.textPrimary} solid />
+      </Pressable>
+    </View>
+  );
+
+  const customEditorOverlay = showCustomEditor && (
+    <View style={[styles.customEditorSheet, { bottom: customEditorBottomOffset }]}>
+      <View style={styles.customEditorHeader}>
+        <Text style={styles.customEditorTitle}>
+          New {getPracticeLanguageLabel(practiceLanguage)} words
+        </Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.customEditorCloseButton,
+            pressed && styles.customIconButtonPressed,
+          ]}
+          onPress={() => setShowCustomEditor(false)}
+        >
+          <FontAwesome5 name="times" size={14} color={theme.textPrimary} solid />
+        </Pressable>
+      </View>
+      <Text style={styles.customEditorHint}>
+        Use spaces, commas, or new lines to separate words.
+      </Text>
+      <TextInput
+        style={styles.customInput}
+        value={customInput}
+        onChangeText={(value) => {
+          setCustomInput(value);
+          setCustomFeedback(null);
+          setCustomError(null);
+        }}
+        multiline
+        placeholder={practiceLanguage === 'fr' ? 'ex: maison voiture ami' : 'ex: casa carro amigo'}
+        placeholderTextColor={theme.textMuted}
+        textAlignVertical="top"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      <View style={styles.customActionRow}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.customSaveButton,
+            pressed && styles.customSaveButtonPressed,
+          ]}
+          onPress={() => {
+            void handleAddCustomWords();
+          }}
+        >
+          <Text style={styles.customSaveButtonLabel}>Create cards</Text>
+        </Pressable>
+        {customWords.length > 0 && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.customClearButton,
+              pressed && styles.customClearButtonPressed,
+            ]}
+            onPress={() => {
+              void handleClearCustomCards();
+            }}
+          >
+            <Text style={styles.customClearButtonLabel}>Clear all</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+
+  const customTooltipOverlay = showCustomTooltip && (
+    <View style={[styles.customTooltip, { bottom: customTooltipBottomOffset }]}>
+      <Text style={styles.customTooltipText}>
+        Add words separated by spaces. Optional definition format:
+        casa:house, casa=house, or casa - house.
+      </Text>
+    </View>
+  );
 
   // Start screen: choose number of cards then begin
   if (!state) {
@@ -645,86 +749,8 @@ export function FlashSessionScreen() {
             <Text style={styles.customFeedbackText}>{customFeedback}</Text>
           )}
         </ScrollView>
-        {showCustomEditor && (
-          <View
-            style={[
-              styles.customEditorSheet,
-              { bottom: Math.max(insets.bottom || 0, 10) + 90 },
-            ]}
-          >
-            <View style={styles.customEditorHeader}>
-              <Text style={styles.customEditorTitle}>
-                New {getPracticeLanguageLabel(practiceLanguage)} words
-              </Text>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.customEditorCloseButton,
-                  pressed && styles.customIconButtonPressed,
-                ]}
-                onPress={() => setShowCustomEditor(false)}
-              >
-                <FontAwesome5 name="times" size={14} color={theme.textPrimary} solid />
-              </Pressable>
-            </View>
-            <Text style={styles.customEditorHint}>
-              Use spaces, commas, or new lines to separate words.
-            </Text>
-            <TextInput
-              style={styles.customInput}
-              value={customInput}
-              onChangeText={(value) => {
-                setCustomInput(value);
-                setCustomFeedback(null);
-                setCustomError(null);
-              }}
-              multiline
-              placeholder={practiceLanguage === 'fr' ? 'ex: maison voiture ami' : 'ex: casa carro amigo'}
-              placeholderTextColor={theme.textMuted}
-              textAlignVertical="top"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <View style={styles.customActionRow}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.customSaveButton,
-                  pressed && styles.customSaveButtonPressed,
-                ]}
-                onPress={() => {
-                  void handleAddCustomWords();
-                }}
-              >
-                <Text style={styles.customSaveButtonLabel}>Create cards</Text>
-              </Pressable>
-              {customWords.length > 0 && (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.customClearButton,
-                    pressed && styles.customClearButtonPressed,
-                  ]}
-                  onPress={() => {
-                    void handleClearCustomCards();
-                  }}
-                >
-                  <Text style={styles.customClearButtonLabel}>Clear all</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        )}
-        {showCustomTooltip && (
-          <View
-            style={[
-              styles.customTooltip,
-              { bottom: Math.max(insets.bottom || 0, 10) + 140 },
-            ]}
-          >
-            <Text style={styles.customTooltipText}>
-              Add words separated by spaces. Optional definition format:
-              casa:house, casa=house, or casa - house.
-            </Text>
-          </View>
-        )}
+        {customEditorOverlay}
+        {customTooltipOverlay}
         <View
           style={[
             styles.floatingButtons,
@@ -775,32 +801,35 @@ export function FlashSessionScreen() {
         resizeMode="cover"
       >
         <HeaderHUD
-        rightCount={state.rightCount}
-        incorrectCount={state.incorrectCount}
-        skippedCount={state.skippedCount}
-        guessedCount={state.guessedCount}
-        remaining={remaining}
-        startedAt={state.startedAt}
-        frozen={state.cleared || stopModalVisible}
+          rightCount={state.rightCount}
+          incorrectCount={state.incorrectCount}
+          skippedCount={state.skippedCount}
+          guessedCount={state.guessedCount}
+          remaining={remaining}
+          startedAt={state.startedAt}
+          frozen={state.cleared || stopModalVisible}
+          actions={hudActionButtons}
         />
         <View style={styles.content}>
           <FlashCard
-          word={currentWord}
-          uiState={state.uiState}
-          choiceOptions={state.choiceOptions}
-          correctChoiceIndex={state.correctChoiceIndex}
-          selectedChoiceIndex={state.selectedChoiceIndex}
-          onSwipeLeft={handleSwipeLeft}
-          onSwipeRight={swipeRight}
-          onChooseOption={chooseOption}
-          onAdvance={advanceToNextCard}
-          onPlayAudio={handlePlayAudio}
-          onTapToSkip={handleTapToSkip}
-          playbackRate={playbackRate}
-          onCycleSpeed={handleCycleSpeed}
-          disabled={state.cleared || stopModalVisible || showGestureDemo}
+            word={currentWord}
+            uiState={state.uiState}
+            choiceOptions={state.choiceOptions}
+            correctChoiceIndex={state.correctChoiceIndex}
+            selectedChoiceIndex={state.selectedChoiceIndex}
+            onSwipeLeft={handleSwipeLeft}
+            onSwipeRight={swipeRight}
+            onChooseOption={chooseOption}
+            onAdvance={advanceToNextCard}
+            onPlayAudio={handlePlayAudio}
+            onTapToSkip={handleTapToSkip}
+            playbackRate={playbackRate}
+            onCycleSpeed={handleCycleSpeed}
+            disabled={state.cleared || stopModalVisible || showGestureDemo}
           />
         </View>
+        {customEditorOverlay}
+        {customTooltipOverlay}
         <View style={[styles.debugPanelWrap, { top: (insets.top || 0) + 62 }]}>
           <Pressable
           style={({ pressed }) => [styles.debugToggle, pressed && styles.debugTogglePressed]}
@@ -944,6 +973,30 @@ const styles = StyleSheet.create({
   customIconButtonPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.97 }],
+  },
+  hudActionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  hudActionButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hudInfoButton: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  hudAddButton: {
+    backgroundColor: 'rgba(106,92,255,0.45)',
+    borderColor: 'rgba(179,168,255,0.85)',
+  },
+  hudActionButtonPressed: {
+    opacity: 0.92,
   },
   customTooltip: {
     position: 'absolute',
