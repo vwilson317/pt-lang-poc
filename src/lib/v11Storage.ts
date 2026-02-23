@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ClipRecord, Deck, DeckCounts, FlashCardRecord } from '../types/v11';
 import { BUILT_IN_PHRASES } from '../data/phrases';
+import { makeId } from './id';
 
 const KEY_V11_INITIALIZED = 'v11:initialized';
 const KEY_DECKS = 'v11:decks';
@@ -79,6 +80,33 @@ export async function setSelectedDeck(deckId: string): Promise<void> {
     updatedAt: nowMs(),
   }));
   await writeJson(KEY_DECKS, updated);
+}
+
+export async function createDeck(name: string, selectAfterCreate = false): Promise<Deck> {
+  await ensureV11Initialized();
+  const decks = await getDecks();
+  const ts = nowMs();
+  const normalizedName = name.trim() || `Deck ${decks.length + 1}`;
+  const nextDeck: Deck = {
+    id: makeId('deck'),
+    name: normalizedName,
+    isSelected: selectAfterCreate,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+  const nextDecks = [
+    nextDeck,
+    ...decks.map((deck) => ({
+      ...deck,
+      isSelected: selectAfterCreate ? false : deck.isSelected,
+      updatedAt: selectAfterCreate ? ts : deck.updatedAt,
+    })),
+  ];
+  await writeJson(KEY_DECKS, nextDecks);
+  if (selectAfterCreate) {
+    await AsyncStorage.setItem(KEY_SELECTED_DECK_ID, nextDeck.id);
+  }
+  return nextDeck;
 }
 
 export async function getCards(): Promise<FlashCardRecord[]> {

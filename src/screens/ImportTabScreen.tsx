@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { createJob, getJobResult, getJobStatus } from '../lib/jobsApi';
-import { addCards, getSelectedDeckId, upsertClip } from '../lib/v11Storage';
+import { addCards, createDeck, getSelectedDeckId, upsertClip } from '../lib/v11Storage';
 import type { ClipSegment, ClipStatus, FlashCardRecord } from '../types/v11';
 import { makeId } from '../lib/id';
 import {
@@ -30,13 +30,14 @@ function sanitizeTokenForCardId(value: string): string {
     .replace(/(^-|-$)/g, '');
 }
 
+type WordCardSeed = Omit<FlashCardRecord, 'deckId'>;
+
 function buildWordCardsFromSegments(
   segments: ClipSegment[],
-  deckId: string,
   clipId: string
-): FlashCardRecord[] {
+): WordCardSeed[] {
   const seen = new Set<string>();
-  const cards: FlashCardRecord[] = [];
+  const cards: WordCardSeed[] = [];
   for (const segment of segments) {
     const tokens = segment.textOriginal.match(/[A-Za-zÀ-ÖØ-öø-ÿ']+/g) ?? [];
     for (const token of tokens) {
@@ -48,7 +49,6 @@ function buildWordCardsFromSegments(
       if (!slug) continue;
       cards.push({
         id: `word-${clipId}-${slug}`,
-        deckId,
         cardType: 'word',
         front: normalized,
         // WhatsApp import currently has no reliable EN translation per token.
@@ -59,6 +59,16 @@ function buildWordCardsFromSegments(
     }
   }
   return cards;
+}
+
+function buildImportedWordsDeckName(assetName?: string): string {
+  const normalizedBase = (assetName ?? '')
+    .trim()
+    .replace(/\.[^.]+$/, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 36);
+  if (!normalizedBase) return 'Imported Words';
+  return `${normalizedBase} Words`;
 }
 
 function scoreZipTextEntry(entryName: string): number {
@@ -367,10 +377,8 @@ export function ImportTabScreen() {
       };
 
       await upsertClip(clip);
-      const deckId = await getSelectedDeckId();
-      const sentenceCards: FlashCardRecord[] = clip.segments.map((segment) => ({
+      const sentenceCardSeeds: Omit<FlashCardRecord, 'deckId'>[] = clip.segments.map((segment) => ({
         id: `sentence-${clip.id}-${segment.id}`,
-        deckId,
         cardType: 'sentence',
         front: segment.textOriginal,
         back: segment.textTranslated,
@@ -378,8 +386,23 @@ export function ImportTabScreen() {
         sourceSegmentId: segment.id,
         createdAt: Date.now(),
       }));
-      const wordCards = buildWordCardsFromSegments(clip.segments, deckId, clip.id);
-      const generatedCards = [...sentenceCards, ...wordCards];
+      const wordCardSeeds = buildWordCardsFromSegments(clip.segments, clip.id);
+      const generatedSeeds = [...sentenceCardSeeds, ...wordCardSeeds];
+      if (generatedSeeds.length === 0) {
+        setState('FAILED');
+        setErrorMessage('No cards were created from this thread.');
+        return;
+      }
+
+      setProgress(80);
+      setProgressLabel('Creating imported deck...');
+      const importedDeck = await createDeck(buildImportedWordsDeckName(asset.name), true);
+      const generatedCards: FlashCardRecord[] = generatedSeeds.map((seed) => ({
+        ...seed,
+        deckId: importedDeck.id,
+      }));
+      const sentenceCards = generatedCards.filter((card) => card.cardType === 'sentence');
+      const wordCards = generatedCards.filter((card) => card.cardType === 'word');
       if (generatedCards.length === 0) {
         setState('FAILED');
         setErrorMessage('No cards were created from this thread.');
