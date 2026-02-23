@@ -617,15 +617,27 @@ export function FlashSessionScreen() {
     }, 2200);
   }, []);
 
-  const handleStopAndCopy = useCallback(async () => {
+  const copyMissedWordsToClipboard = useCallback(async () => {
     const exportText = buildMissedWordsListExport(missedWordExportItems);
+    await Clipboard.setStringAsync(exportText);
+    const toastMessage =
+      uniqueMissCount > 0
+        ? `Copied ${uniqueMissCount} skipped/wrong words to clipboard`
+        : 'Copied to clipboard';
+    showNativeCopyToast(toastMessage);
+  }, [missedWordExportItems, showNativeCopyToast, uniqueMissCount]);
+
+  const handleExportMissedWords = useCallback(async () => {
     try {
-      await Clipboard.setStringAsync(exportText);
-      const toastMessage =
-        uniqueMissCount > 0
-          ? `Copied ${uniqueMissCount} skipped/wrong words to clipboard`
-          : 'Copied to clipboard';
-      showNativeCopyToast(toastMessage);
+      await copyMissedWordsToClipboard();
+    } catch {
+      Alert.alert('Copy failed', 'Could not copy the export to your clipboard.');
+    }
+  }, [copyMissedWordsToClipboard]);
+
+  const handleStopAndCopy = useCallback(async () => {
+    try {
+      await copyMissedWordsToClipboard();
     } catch {
       Alert.alert('Copy failed', 'Could not copy the export to your clipboard.');
     } finally {
@@ -638,7 +650,7 @@ export function FlashSessionScreen() {
       lastRecordedIncorrectIdRef.current = null;
       stopSession();
     }
-  }, [missedWordExportItems, showNativeCopyToast, stopSession, uniqueMissCount]);
+  }, [copyMissedWordsToClipboard, stopSession]);
 
   useEffect(() => {
     return () => {
@@ -950,6 +962,10 @@ export function FlashSessionScreen() {
         <CompletionModal
         visible={showModal}
         bestTimeMs={bestTimeMs}
+        uniqueMissCount={uniqueMissCount}
+        onExportMissedWords={() => {
+          void handleExportMissedWords();
+        }}
         onRunAgain={handleRunAgain}
         onDone={handleDone}
         />

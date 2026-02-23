@@ -1,10 +1,13 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { theme } from '../theme';
 
 type CompletionModalProps = {
   visible: boolean;
   bestTimeMs: number | null;
+  uniqueMissCount: number;
+  onExportMissedWords: () => void;
   onRunAgain: () => void;
   onDone: () => void;
 };
@@ -12,6 +15,8 @@ type CompletionModalProps = {
 export function CompletionModal({
   visible,
   bestTimeMs,
+  uniqueMissCount,
+  onExportMissedWords,
   onRunAgain,
   onDone,
 }: CompletionModalProps) {
@@ -19,6 +24,7 @@ export function CompletionModal({
     bestTimeMs != null
       ? `${Math.floor(bestTimeMs / 60000)}:${((bestTimeMs % 60000) / 1000).toFixed(1).padStart(4, '0')}`
       : null;
+  const hasMissedWords = uniqueMissCount > 0;
 
   return (
     <Modal
@@ -35,6 +41,20 @@ export function CompletionModal({
             <Text style={styles.best}>Best time: {bestStr}</Text>
           )}
           <View style={styles.buttons}>
+            {hasMissedWords && (
+              <TouchableOpacity
+                style={[styles.button, styles.exportButton]}
+                onPress={onExportMissedWords}
+                activeOpacity={0.8}
+              >
+                <View style={styles.exportButtonContent}>
+                  <FontAwesome5 name="copy" size={14} color={theme.textPrimary} solid />
+                  <Text style={styles.exportText}>
+                    Export missed + skipped words ({uniqueMissCount})
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.button, styles.primary]}
               onPress={onRunAgain}
@@ -102,8 +122,23 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: theme.brand,
   },
+  exportButton: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: theme.stroke,
+  },
   primaryText: {
     fontSize: 16,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  exportButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  exportText: {
+    fontSize: 14,
     fontWeight: '700',
     color: theme.textPrimary,
   },
