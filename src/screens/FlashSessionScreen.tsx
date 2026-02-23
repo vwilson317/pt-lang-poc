@@ -27,6 +27,7 @@ import type { PracticeLanguage } from '../types/practiceLanguage';
 import { getPracticeLanguageLabel } from '../types/practiceLanguage';
 import { useSession } from '../state/useSession';
 import { getWordByIdForLanguage, DECK_LENGTH } from '../data/words';
+import { getSelectedDeckId, getWordCards } from '../lib/v11Storage';
 import {
   getBestClearMs,
   setBestClearMs,
@@ -215,7 +216,15 @@ async function readClipboardText(): Promise<string> {
   }
 }
 
-export function FlashSessionScreen() {
+type FlashSessionScreenProps = {
+  importWordSourceClipId?: string;
+  onExitImportDeck?: () => void;
+};
+
+export function FlashSessionScreen({
+  importWordSourceClipId,
+  onExitImportDeck,
+}: FlashSessionScreenProps = {}) {
   const insets = useSafeAreaInsets();
   const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
   const {
@@ -249,7 +258,10 @@ export function FlashSessionScreen() {
   const [playbackRate, setPlaybackRateState] = React.useState<number>(0.5);
   const [showGestureDemo, setShowGestureDemo] = React.useState(false);
   const [practiceLanguage, setPracticeLanguage] = React.useState<PracticeLanguage>('pt');
+  const [importDeckWords, setImportDeckWords] = React.useState<Word[]>([]);
+  const [importDeckWordsLoaded, setImportDeckWordsLoaded] = React.useState(!importWordSourceClipId);
   const [showSchedulerDebug, setShowSchedulerDebug] = React.useState(false);
+  const importDeckMode = Boolean(importWordSourceClipId);
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
@@ -257,6 +269,45 @@ export function FlashSessionScreen() {
   const gestureDemoShownRef = useRef(false);
   const sessionInitRanRef = useRef(false);
   const hasHydratedLanguageRef = useRef(false);
+  const importAutoStartDoneRef = useRef(false);
+
+  useEffect(() => {
+    importAutoStartDoneRef.current = false;
+  }, [importWordSourceClipId]);
+
+  useEffect(() => {
+    if (!importWordSourceClipId) {
+      setImportDeckWords([]);
+      setImportDeckWordsLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setImportDeckWordsLoaded(false);
+    void (async () => {
+      const deckId = await getSelectedDeckId();
+      const cards = await getWordCards(deckId, importWordSourceClipId);
+      if (cancelled) return;
+      const mapped = cards
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((card) => {
+          const term = card.front.trim();
+          if (!term) return null;
+          return {
+            id: card.id,
+            term,
+            en: normalizeDefinitionToken(card.back) ?? term,
+            isCustom: true,
+            language: practiceLanguage,
+          } as Word;
+        })
+        .filter((word): word is Word => word != null);
+      setImportDeckWords(mapped);
+      setImportDeckWordsLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [importWordSourceClipId, practiceLanguage]);
 
   useFocusEffect(
     useCallback(() => {
@@ -278,14 +329,18 @@ export function FlashSessionScreen() {
             lastClearedRef.current = false;
             lastRecordedCorrectIdRef.current = null;
             lastRecordedIncorrectIdRef.current = null;
-            startSession({
-              cardCount: Math.round(cardCount),
-              customWords: words,
-              language,
-            });
+            if (!importDeckMode) {
+              startSession({
+                cardCount: Math.round(cardCount),
+                customWords: words,
+                language,
+              });
+            }
             const nextLanguageLabel = getPracticeLanguageLabel(language);
             setToastMessage(
-              `Language switched to ${nextLanguageLabel}. Started a new session.`
+              importDeckMode
+                ? `Language switched to ${nextLanguageLabel}.`
+                : `Language switched to ${nextLanguageLabel}. Started a new session.`
             );
             if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
             toastTimerRef.current = setTimeout(() => {
@@ -300,7 +355,7 @@ export function FlashSessionScreen() {
       return () => {
         cancelled = true;
       };
-    }, [cardCount, practiceLanguage, startSession])
+    }, [cardCount, importDeckMode, practiceLanguage, startSession])
   );
 
   useEffect(() => {
@@ -332,6 +387,36 @@ export function FlashSessionScreen() {
   useEffect(() => {
     if (!state) sessionInitRanRef.current = false;
   }, [state]);
+
+  useEffect(() => {
+    if (!importDeckMode) return;
+    if (importAutoStartDoneRef.current) return;
+    if (!importDeckWordsLoaded || !customWordsLoaded) return;
+    if (importDeckWords.length === 0) return;
+    if (state) return;
+
+    importAutoStartDoneRef.current = true;
+    setModalDismissed(false);
+    setStopModalVisible(false);
+    setSkippedCountsById({});
+    setIncorrectCountsById({});
+    lastClearedRef.current = false;
+    lastRecordedCorrectIdRef.current = null;
+    lastRecordedIncorrectIdRef.current = null;
+    startSession({
+      cardCount: 0,
+      customWords: importDeckWords,
+      language: practiceLanguage,
+    });
+  }, [
+    customWordsLoaded,
+    importDeckMode,
+    importDeckWords,
+    importDeckWordsLoaded,
+    practiceLanguage,
+    startSession,
+    state,
+  ]);
 
   const handleAddCustomWords = useCallback(async () => {
     const parsedEntries = parseCustomWordInput(customInput);
@@ -559,8 +644,13 @@ export function FlashSessionScreen() {
         if (misses <= 0) return null;
 
         const builtInWord = getWordByIdForLanguage(id, practiceLanguage);
-        const customWord = builtInWord ? null : customWords.find((word) => word.id === id);
-        const word = builtInWord ?? customWord;
+        const customWord =
+          builtInWord == null ? customWords.find((word) => word.id === id) : null;
+        const importWord =
+          builtInWord == null && customWord == null
+            ? importDeckWords.find((word) => word.id === id)
+            : null;
+        const word = builtInWord ?? customWord ?? importWord;
         if (!word?.term) return null;
 
         const en = normalizeDefinitionToken(word.en) ?? word.term;
@@ -576,7 +666,7 @@ export function FlashSessionScreen() {
       })
       .filter((item): item is MissedWordExportItem => item != null)
       .sort((a, b) => b.misses - a.misses || a.term.localeCompare(b.term));
-  }, [customWords, incorrectCountsById, practiceLanguage, skippedCountsById]);
+  }, [customWords, importDeckWords, incorrectCountsById, practiceLanguage, skippedCountsById]);
   const uniqueMissCount = missedWordExportItems.length;
 
   const handleStartSession = useCallback(
@@ -605,6 +695,7 @@ export function FlashSessionScreen() {
   const customEditorBottomOffset =
     Math.max(insets.bottom || 0, 10) + (state && !state.cleared && !stopModalVisible ? 90 : 18);
   const customTooltipBottomOffset = customEditorBottomOffset + 56;
+  const showCustomWordTools = !importDeckMode;
 
   const showNativeCopyToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
@@ -693,7 +784,7 @@ export function FlashSessionScreen() {
     </View>
   );
 
-  const customEditorOverlay = showCustomEditor && (
+  const customEditorOverlay = showCustomWordTools && showCustomEditor && (
     <View style={[styles.customEditorSheet, { bottom: customEditorBottomOffset }]}>
       <View style={styles.customEditorHeader}>
         <Text style={styles.customEditorTitle}>
@@ -756,7 +847,7 @@ export function FlashSessionScreen() {
     </View>
   );
 
-  const customTooltipOverlay = showCustomTooltip && (
+  const customTooltipOverlay = showCustomWordTools && showCustomTooltip && (
     <View style={[styles.customTooltip, { bottom: customTooltipBottomOffset }]}>
       <Text style={styles.customTooltipText}>
         Add words separated by spaces. Optional definition format:
@@ -767,6 +858,74 @@ export function FlashSessionScreen() {
 
   // Start screen: choose number of cards then begin
   if (!state) {
+    if (importDeckMode) {
+      return (
+        <ImageBackground
+          source={bgImage}
+          style={[styles.screen, { paddingTop: (insets.top || 0) + theme.safeAreaTopOffset }]}
+          resizeMode="cover"
+        >
+          <View style={styles.centered}>
+            {!importDeckWordsLoaded || !customWordsLoaded ? (
+              <>
+                <Text style={styles.title}>Loading imported words...</Text>
+                <Text style={styles.subtitle}>Preparing your imported deck.</Text>
+              </>
+            ) : importDeckWords.length === 0 ? (
+              <>
+                <Text style={styles.title}>No imported words found</Text>
+                <Text style={styles.subtitle}>This import does not have word cards yet.</Text>
+                {onExitImportDeck && (
+                  <Pressable style={styles.secondaryButton} onPress={onExitImportDeck}>
+                    <Text style={styles.secondaryLabel}>Back to Practice</Text>
+                  </Pressable>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.title}>Imported word deck</Text>
+                <Text style={styles.subtitle}>
+                  {importDeckWords.length} cards from this import are ready.
+                </Text>
+                <Pressable
+                  style={styles.primaryButton}
+                  onPress={() => {
+                    importAutoStartDoneRef.current = true;
+                    setModalDismissed(false);
+                    setStopModalVisible(false);
+                    setSkippedCountsById({});
+                    setIncorrectCountsById({});
+                    lastClearedRef.current = false;
+                    lastRecordedCorrectIdRef.current = null;
+                    lastRecordedIncorrectIdRef.current = null;
+                    startSession({
+                      cardCount: 0,
+                      customWords: importDeckWords,
+                      language: practiceLanguage,
+                    });
+                  }}
+                >
+                  <Text style={styles.primaryLabel}>Start Imported Deck</Text>
+                </Pressable>
+                {onExitImportDeck && (
+                  <Pressable style={styles.secondaryButton} onPress={onExitImportDeck}>
+                    <Text style={styles.secondaryLabel}>Back to Practice</Text>
+                  </Pressable>
+                )}
+              </>
+            )}
+          </View>
+          {toastMessage && (
+            <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
+              <View style={styles.webToast}>
+                <Text style={styles.webToastText}>{toastMessage}</Text>
+              </View>
+            </View>
+          )}
+        </ImageBackground>
+      );
+    }
+
     const displayCount = Math.round(cardCount);
     const minCardsAllowed = customWords.length > 0 ? 0 : MIN_CARDS;
     const totalCardsPlanned = displayCount + customWords.length;
@@ -887,7 +1046,7 @@ export function FlashSessionScreen() {
           remaining={remaining}
           startedAt={state.startedAt}
           frozen={state.cleared || stopModalVisible}
-          actions={hudActionButtons}
+          actions={showCustomWordTools ? hudActionButtons : undefined}
         />
         <View style={styles.content}>
           <FlashCard
@@ -991,6 +1150,52 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: theme.bg0,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: theme.textPrimary,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: theme.textMuted,
+    textAlign: 'center',
+  },
+  primaryButton: {
+    minHeight: 48,
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.brand,
+  },
+  primaryLabel: {
+    color: theme.textPrimary,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  secondaryButton: {
+    minHeight: 48,
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  secondaryLabel: {
+    color: theme.textPrimary,
+    fontWeight: '700',
+    fontSize: 16,
   },
   content: {
     flex: 1,

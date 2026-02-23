@@ -396,7 +396,7 @@ export function ImportTabScreen() {
       setState('DONE');
       router.push({
         pathname: '/(tabs)/practice',
-        params: { mode: 'sentences', clipId: clip.id },
+        params: { mode: 'words', clipId: clip.id },
       });
     } catch (error) {
       setState('FAILED');

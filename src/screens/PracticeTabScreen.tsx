@@ -4,7 +4,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FlashSessionScreen } from './FlashSessionScreen';
 import { SentencePracticeScreen } from './SentencePracticeScreen';
 import { PhrasePracticeScreen } from './PhrasePracticeScreen';
-import { WordCardPracticeScreen } from './WordCardPracticeScreen';
 import { ensureV11Initialized, getSelectedDeck } from '../lib/v11Storage';
 import { theme } from '../theme';
 
@@ -52,9 +51,9 @@ export function PracticeTabScreen() {
               <Text style={styles.modeLabelMuted}>Imports</Text>
             </Pressable>
           </View>
-          <WordCardPracticeScreen
-            sourceClipId={sourceClipId}
-            onBack={() => {
+          <FlashSessionScreen
+            importWordSourceClipId={sourceClipId}
+            onExitImportDeck={() => {
               router.replace('/(tabs)/practice');
             }}
           />
