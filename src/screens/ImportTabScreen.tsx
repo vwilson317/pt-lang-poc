@@ -10,22 +10,15 @@ import type { ClipSegment, ClipStatus, FlashCardRecord } from '../types/v11';
 import { makeId } from '../lib/id';
 import {
   buildWhatsAppImport,
-  listWhatsAppSenderPhones,
-  type WhatsAppSenderPhone,
 } from '../lib/whatsAppImport';
 import { theme } from '../theme';
 
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
 type ImportKind = 'media' | 'whatsapp';
-type WhatsAppCardOutput = 'sentence' | 'word';
 
 function normalizedAssetName(asset: PickerAsset): string {
   return (asset.name ?? '').trim().toLowerCase();
-}
-
-function formatPhoneForDisplay(value: string): string {
-  return value.startsWith('+') ? value : `+${value}`;
 }
 
 function sanitizeTokenForCardId(value: string): string {
@@ -140,17 +133,14 @@ export function ImportTabScreen() {
   const [state, setState] = useState<ImportState>('EMPTY');
   const [asset, setAsset] = useState<PickerAsset | null>(null);
   const [importKind, setImportKind] = useState<ImportKind>('media');
-  const [whatsAppCardOutput, setWhatsAppCardOutput] = useState<WhatsAppCardOutput>('sentence');
-  const [includeOtherParticipants, setIncludeOtherParticipants] = useState(true);
   const [whatsAppTextCache, setWhatsAppTextCache] = useState<string | null>(null);
-  const [availableSenderPhones, setAvailableSenderPhones] = useState<WhatsAppSenderPhone[]>([]);
-  const [selectedSenderPhones, setSelectedSenderPhones] = useState<string[]>([]);
-  const [analyzingWhatsAppFile, setAnalyzingWhatsAppFile] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState('Preparing import...');
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const [importedCardsCount, setImportedCardsCount] = useState(0);
+  const [importedSentenceCount, setImportedSentenceCount] = useState(0);
+  const [importedWordCount, setImportedWordCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -182,6 +172,8 @@ export function ImportTabScreen() {
           }));
           await addCards(sentenceCards);
           setImportedCardsCount(sentenceCards.length);
+          setImportedSentenceCount(sentenceCards.length);
+          setImportedWordCount(0);
           setImportWarning(null);
           setProgress(100);
           setProgressLabel('Complete');
@@ -307,47 +299,6 @@ export function ImportTabScreen() {
     [isZipAsset, readBinaryAsset, readTextAsset]
   );
 
-  const toggleSelectedSenderPhone = useCallback((phone: string) => {
-    setErrorMessage(null);
-    setSelectedSenderPhones((prev) =>
-      prev.includes(phone) ? prev.filter((item) => item !== phone) : [...prev, phone]
-    );
-  }, []);
-
-  const selectedSenderSet = useMemo(
-    () => new Set(selectedSenderPhones),
-    [selectedSenderPhones]
-  );
-
-  const analyzeWhatsAppAsset = useCallback(
-    async (selected: PickerAsset): Promise<{ rawText: string; senderPhones: WhatsAppSenderPhone[] } | null> => {
-      setAnalyzingWhatsAppFile(true);
-      try {
-        const rawText = await readWhatsAppTextAsset(selected);
-        const senderPhones = listWhatsAppSenderPhones(rawText);
-        setWhatsAppTextCache(rawText);
-        setAvailableSenderPhones(senderPhones);
-        setSelectedSenderPhones((prev) =>
-          prev.filter((phone) => senderPhones.some((item) => item.phone === phone))
-        );
-        if (senderPhones.length === 0) {
-          setImportWarning(
-            'No phone numbers were detected in this export. Switch to "Include all" to import the thread.'
-          );
-        }
-        return { rawText, senderPhones };
-      } catch (error) {
-        setState('FAILED');
-        const fallback = 'Could not read this WhatsApp export. Try another .txt or .zip file.';
-        setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
-        return null;
-      } finally {
-        setAnalyzingWhatsAppFile(false);
-      }
-    },
-    [readWhatsAppTextAsset]
-  );
-
   const pickFile = useCallback(async (kind: ImportKind) => {
     const result = await DocumentPicker.getDocumentAsync({
       type: kind === 'media' ? ['video/*', 'image/*'] : '*/*',
@@ -371,42 +322,14 @@ export function ImportTabScreen() {
     setErrorMessage(null);
     setImportWarning(null);
     setImportedCardsCount(0);
+    setImportedSentenceCount(0);
+    setImportedWordCount(0);
     setJobId(null);
     setWhatsAppTextCache(null);
-    setAvailableSenderPhones([]);
-    setSelectedSenderPhones([]);
-    setWhatsAppCardOutput('sentence');
-    setIncludeOtherParticipants(true);
-    setAnalyzingWhatsAppFile(false);
   }, [isWhatsAppAsset]);
 
   const startWhatsAppImport = useCallback(async () => {
     if (!asset) return;
-    if (analyzingWhatsAppFile) {
-      setErrorMessage('Still reading the WhatsApp file. Please wait a moment and try again.');
-      return;
-    }
-    let analyzedRawText: string | null = null;
-    let analyzedSenderPhones: WhatsAppSenderPhone[] | null = null;
-    if (!includeOtherParticipants && !whatsAppTextCache) {
-      const analyzed = await analyzeWhatsAppAsset(asset);
-      if (!analyzed) return;
-      analyzedRawText = analyzed.rawText;
-      analyzedSenderPhones = analyzed.senderPhones;
-    }
-    const senderPhonesForSelection = analyzedSenderPhones ?? availableSenderPhones;
-    if (!includeOtherParticipants && senderPhonesForSelection.length === 0) {
-      setErrorMessage('No phone numbers were detected. Switch to "Include all" to import this thread.');
-      return;
-    }
-    if (
-      !includeOtherParticipants &&
-      senderPhonesForSelection.length > 0 &&
-      selectedSenderPhones.length === 0
-    ) {
-      setErrorMessage('Select at least one phone number or choose "Include all".');
-      return;
-    }
 
     setErrorMessage(null);
     setImportWarning(null);
@@ -415,17 +338,13 @@ export function ImportTabScreen() {
     setProgressLabel('Reading WhatsApp export...');
 
     try {
-      const rawText = analyzedRawText ?? whatsAppTextCache ?? (await readWhatsAppTextAsset(asset));
+      const rawText = whatsAppTextCache ?? (await readWhatsAppTextAsset(asset));
       if (!whatsAppTextCache) {
         setWhatsAppTextCache(rawText);
       }
       setProgress(35);
       setProgressLabel('Parsing thread...');
-      const parsed = buildWhatsAppImport(
-        rawText,
-        selectedSenderPhones,
-        includeOtherParticipants
-      );
+      const parsed = buildWhatsAppImport(rawText);
       if (parsed.segments.length === 0) {
         setState('FAILED');
         setErrorMessage(parsed.warning ?? 'No usable messages found in this thread export.');
@@ -434,15 +353,13 @@ export function ImportTabScreen() {
 
       const clipId = makeId('clip-wa');
       setProgress(65);
-      setProgressLabel(
-        whatsAppCardOutput === 'sentence' ? 'Building sentence cards...' : 'Building word cards...'
-      );
+      setProgressLabel('Building cards...');
 
       const clip = {
         id: clipId,
         sourceLanguage: 'pt' as const,
         targetLanguage: 'en' as const,
-        importCardType: whatsAppCardOutput,
+        importCardType: 'both' as const,
         transcriptOriginal: parsed.transcript,
         transcriptTranslated: parsed.transcript,
         segments: parsed.segments,
@@ -451,45 +368,36 @@ export function ImportTabScreen() {
 
       await upsertClip(clip);
       const deckId = await getSelectedDeckId();
-      const generatedCards: FlashCardRecord[] =
-        whatsAppCardOutput === 'sentence'
-          ? clip.segments.map((segment) => ({
-              id: `sentence-${clip.id}-${segment.id}`,
-              deckId,
-              cardType: 'sentence',
-              front: segment.textOriginal,
-              back: segment.textTranslated,
-              sourceClipId: clip.id,
-              sourceSegmentId: segment.id,
-              createdAt: Date.now(),
-            }))
-          : buildWordCardsFromSegments(clip.segments, deckId, clip.id);
+      const sentenceCards: FlashCardRecord[] = clip.segments.map((segment) => ({
+        id: `sentence-${clip.id}-${segment.id}`,
+        deckId,
+        cardType: 'sentence',
+        front: segment.textOriginal,
+        back: segment.textTranslated,
+        sourceClipId: clip.id,
+        sourceSegmentId: segment.id,
+        createdAt: Date.now(),
+      }));
+      const wordCards = buildWordCardsFromSegments(clip.segments, deckId, clip.id);
+      const generatedCards = [...sentenceCards, ...wordCards];
       if (generatedCards.length === 0) {
         setState('FAILED');
-        setErrorMessage(
-          whatsAppCardOutput === 'sentence'
-            ? 'No sentence cards were created from this thread.'
-            : 'No word cards were created from this thread.'
-        );
+        setErrorMessage('No cards were created from this thread.');
         return;
       }
+
       await addCards(generatedCards);
       setImportedCardsCount(generatedCards.length);
+      setImportedSentenceCount(sentenceCards.length);
+      setImportedWordCount(wordCards.length);
       setImportWarning(parsed.warning ?? null);
       setProgress(100);
       setProgressLabel('Complete');
       setState('DONE');
-      if (whatsAppCardOutput === 'sentence') {
-        router.push({
-          pathname: '/(tabs)/practice',
-          params: { mode: 'sentences', clipId: clip.id },
-        });
-      } else {
-        router.push({
-          pathname: '/(tabs)/practice',
-          params: { mode: 'words', clipId: clip.id },
-        });
-      }
+      router.push({
+        pathname: '/(tabs)/practice',
+        params: { mode: 'sentences', clipId: clip.id },
+      });
     } catch (error) {
       setState('FAILED');
       const fallback = 'Could not import this WhatsApp export. Try another .txt or .zip file.';
@@ -497,14 +405,8 @@ export function ImportTabScreen() {
     }
   }, [
     asset,
-    availableSenderPhones.length,
-    includeOtherParticipants,
-    analyzingWhatsAppFile,
-    whatsAppCardOutput,
-    analyzeWhatsAppAsset,
     readWhatsAppTextAsset,
     router,
-    selectedSenderPhones,
     whatsAppTextCache,
   ]);
 
@@ -535,24 +437,6 @@ export function ImportTabScreen() {
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
     }
   }, [asset, importKind, isImage, startWhatsAppImport]);
-
-  useEffect(() => {
-    if (importKind !== 'whatsapp') return;
-    if (state !== 'SELECTED') return;
-    if (!asset) return;
-    if (includeOtherParticipants) return;
-    if (whatsAppTextCache) return;
-    if (analyzingWhatsAppFile) return;
-    void analyzeWhatsAppAsset(asset);
-  }, [
-    importKind,
-    state,
-    asset,
-    includeOtherParticipants,
-    whatsAppTextCache,
-    analyzingWhatsAppFile,
-    analyzeWhatsAppAsset,
-  ]);
 
   if (state === 'EMPTY') {
     return (
@@ -588,79 +472,12 @@ export function ImportTabScreen() {
         )}
         {importKind === 'whatsapp' && (
           <View style={styles.whatsAppOptions}>
-            <Text style={styles.optionLabel}>Import messages from</Text>
-            <View style={styles.toggleRow}>
-              <Pressable
-                style={[styles.smallToggle, !includeOtherParticipants && styles.smallToggleActive]}
-                onPress={() => {
-                  setErrorMessage(null);
-                  setIncludeOtherParticipants(false);
-                }}
-              >
-                <Text style={styles.smallToggleLabel}>Selected numbers</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.smallToggle, includeOtherParticipants && styles.smallToggleActive]}
-                onPress={() => {
-                  setErrorMessage(null);
-                  setIncludeOtherParticipants(true);
-                }}
-              >
-                <Text style={styles.smallToggleLabel}>Include all</Text>
-              </Pressable>
-            </View>
-            {!includeOtherParticipants && (
-              <>
-                <Text style={styles.optionLabel}>Select one or more participant phone numbers</Text>
-                {analyzingWhatsAppFile ? (
-                  <Text style={styles.helper}>Unzipping and reading export to find participant numbers...</Text>
-                ) : availableSenderPhones.length === 0 ? (
-                  <Text style={styles.helper}>
-                    No phone numbers detected in this file. Switch to "Include all" to import the full thread.
-                  </Text>
-                ) : (
-                  <View style={styles.toggleRow}>
-                    {availableSenderPhones.map((item) => {
-                      const active = selectedSenderSet.has(item.phone);
-                      return (
-                        <Pressable
-                          key={item.phone}
-                          style={[styles.smallToggle, active && styles.smallToggleActive]}
-                          onPress={() => toggleSelectedSenderPhone(item.phone)}
-                        >
-                          <Text style={styles.smallToggleLabel}>
-                            {formatPhoneForDisplay(item.phone)} ({item.messageCount})
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                )}
-              </>
-            )}
-            <Text style={styles.optionLabel}>Create cards as</Text>
-            <View style={styles.toggleRow}>
-              <Pressable
-                style={[styles.smallToggle, whatsAppCardOutput === 'sentence' && styles.smallToggleActive]}
-                onPress={() => setWhatsAppCardOutput('sentence')}
-              >
-                <Text style={styles.smallToggleLabel}>Sentence cards</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.smallToggle, whatsAppCardOutput === 'word' && styles.smallToggleActive]}
-                onPress={() => setWhatsAppCardOutput('word')}
-              >
-                <Text style={styles.smallToggleLabel}>Word cards</Text>
-              </Pressable>
-            </View>
-            {whatsAppCardOutput === 'word' && (
-              <Text style={styles.helper}>
-                Word cards are generated from unique words in the selected messages.
-              </Text>
-            )}
-            {errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
+            <Text style={styles.helper}>
+              We import the full conversation and create both sentence cards and word cards.
+            </Text>
           </View>
         )}
+        {errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
         <View style={styles.row}>
           <Pressable style={styles.secondaryButton} onPress={() => void pickFile(importKind)}>
             <Text style={styles.secondaryLabel}>Choose Another</Text>
@@ -704,10 +521,13 @@ export function ImportTabScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>{importKind === 'whatsapp' ? 'Thread imported' : 'Media ready'}</Text>
-        <Text style={styles.helper}>
-          Created {importedCardsCount}{' '}
-          {importKind === 'whatsapp' && whatsAppCardOutput === 'word' ? 'word' : 'sentence'} cards.
-        </Text>
+        {importKind === 'whatsapp' ? (
+          <Text style={styles.helper}>
+            Created {importedSentenceCount} sentence cards and {importedWordCount} word cards.
+          </Text>
+        ) : (
+          <Text style={styles.helper}>Created {importedCardsCount} sentence cards.</Text>
+        )}
         {importWarning && <Text style={styles.warning}>{importWarning}</Text>}
         <View style={styles.row}>
           <Pressable style={styles.primaryButton} onPress={() => router.push('/(tabs)/imports')}>
@@ -722,12 +542,9 @@ export function ImportTabScreen() {
               setErrorMessage(null);
               setImportWarning(null);
               setImportedCardsCount(0);
-              setWhatsAppCardOutput('sentence');
-              setIncludeOtherParticipants(true);
+              setImportedSentenceCount(0);
+              setImportedWordCount(0);
               setWhatsAppTextCache(null);
-              setAvailableSenderPhones([]);
-              setSelectedSenderPhones([]);
-              setAnalyzingWhatsAppFile(false);
               setProgress(0);
             }}
           >
@@ -751,12 +568,9 @@ export function ImportTabScreen() {
           setErrorMessage(null);
           setImportWarning(null);
           setImportedCardsCount(0);
-          setWhatsAppCardOutput('sentence');
-          setIncludeOtherParticipants(true);
+          setImportedSentenceCount(0);
+          setImportedWordCount(0);
           setWhatsAppTextCache(null);
-          setAvailableSenderPhones([]);
-          setSelectedSenderPhones([]);
-          setAnalyzingWhatsAppFile(false);
           setJobId(null);
           setProgress(0);
         }}
@@ -812,37 +626,8 @@ const styles = StyleSheet.create({
   },
   whatsAppOptions: {
     width: '100%',
-    gap: 8,
+    gap: 6,
     marginTop: 4,
-  },
-  optionLabel: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  smallToggle: {
-    minHeight: 38,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  smallToggleActive: {
-    borderColor: '#9AA7FF',
-    backgroundColor: 'rgba(122,93,255,0.22)',
-  },
-  smallToggleLabel: {
-    color: theme.textPrimary,
-    fontWeight: '600',
-    fontSize: 13,
   },
   progressTrack: {
     width: '100%',

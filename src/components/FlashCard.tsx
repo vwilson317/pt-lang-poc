@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -23,6 +23,29 @@ const customCardSurfaceColors = [
   'rgba(255,96,163,0.16)',
 ] as const;
 const customAudioButtonColors = ['#FF8E53', '#FF5D9B'] as const;
+const LONG_WORD_WRAP_CHUNK = 12;
+
+function addSoftBreaksToLongWord(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (/[\s-]/.test(trimmed) || trimmed.length <= LONG_WORD_WRAP_CHUNK) return trimmed;
+  const chunks: string[] = [];
+  for (let index = 0; index < trimmed.length; index += LONG_WORD_WRAP_CHUNK) {
+    chunks.push(trimmed.slice(index, index + LONG_WORD_WRAP_CHUNK));
+  }
+  return chunks.join('\u200B');
+}
+
+function getResponsiveWordSize(value: string, viewportWidth: number): number {
+  const normalizedLength = value.replace(/\s+/g, '').length;
+  let size = theme.wordSize;
+  if (normalizedLength >= 14) size = 42;
+  if (normalizedLength >= 20) size = 36;
+  if (normalizedLength >= 28) size = 30;
+  if (viewportWidth < 390) size -= 3;
+  if (viewportWidth < 340) size -= 3;
+  return Math.max(24, size);
+}
 
 function wordMetadataLine(word: Word): string | null {
   const parts: string[] = [];
@@ -74,10 +97,10 @@ export function FlashCard({
   onCycleSpeed,
   disabled = false,
 }: FlashCardProps) {
+  const { width: viewportWidth } = useWindowDimensions();
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
-  const cardWidth = 320;
-  const cardHeight = 420;
+  const cardWidth = Math.max(220, Math.min(360, viewportWidth - 52));
 
   const handlePlayAtRate = useCallback(() => {
     onPlayAudio?.(playbackRate);
@@ -141,15 +164,24 @@ export function FlashCard({
   const isFeedback = uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
   const isCustomWord = Boolean(word.isCustom);
   const metadataLine = wordMetadataLine(word);
+  const displayTerm = addSoftBreaksToLongWord(word.term);
+  const responsiveWordSize = getResponsiveWordSize(word.term, viewportWidth);
+  const responsiveWordLineHeight = Math.round(responsiveWordSize * 1.15);
+  const cardPadding = viewportWidth < 360 ? 18 : 24;
 
   return (
     <GestureDetector gesture={panGesture}>
       <Animated.View
-        style={[styles.card, isCustomWord && styles.customCard, animatedCardStyle]}
+        style={[
+          styles.card,
+          { width: cardWidth },
+          isCustomWord && styles.customCard,
+          animatedCardStyle,
+        ]}
       >
         <LinearGradient
           colors={[...(isCustomWord ? customCardSurfaceColors : cardSurfaceColors)]}
-          style={styles.cardGradient}
+          style={[styles.cardGradient, { padding: cardPadding }]}
         >
           <Pressable
             style={styles.innerPressable}
@@ -174,7 +206,17 @@ export function FlashCard({
                   <Text style={styles.speedBadgeText}>{playbackRate}x</Text>
                 </Pressable>
               )}
-              <Text style={styles.pt}>{word.term}</Text>
+              <Text
+                style={[
+                  styles.pt,
+                  {
+                    fontSize: responsiveWordSize,
+                    lineHeight: responsiveWordLineHeight,
+                  },
+                ]}
+              >
+                {displayTerm}
+              </Text>
               {metadataLine != null && (
                 <Text style={styles.wordMetadata}>{metadataLine}</Text>
               )}
@@ -250,7 +292,6 @@ export function FlashCard({
 
 const styles = StyleSheet.create({
   card: {
-    width: '88%' as const,
     maxWidth: 360,
     minHeight: theme.cardMinHeight,
     alignSelf: 'center',
@@ -273,6 +314,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   inner: {
+    width: '100%',
     alignItems: 'center',
   },
   speedBadge: {
@@ -316,12 +358,14 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
   },
   pt: {
-    fontSize: theme.wordSize,
     fontWeight: theme.wordWeight,
     letterSpacing: theme.wordLetterSpacing,
     color: theme.textPrimary,
     marginBottom: 8,
     textAlign: 'center',
+    width: '100%',
+    maxWidth: '100%',
+    flexShrink: 1,
   },
   wordMetadata: {
     fontSize: 12,
