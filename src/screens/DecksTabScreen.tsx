@@ -51,7 +51,7 @@ export function DecksTabScreen() {
         void load();
         router.replace({
           pathname: '/(tabs)/practice',
-          params: { mode: 'words', restartSession: String(Date.now()) },
+          params: { mode: 'words', clipId: '', restartSession: String(Date.now()) },
         });
       });
     };

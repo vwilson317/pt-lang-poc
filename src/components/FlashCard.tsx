@@ -188,6 +188,10 @@ export function FlashCard({
   const responsiveWordSize = getResponsiveWordSize(word.term, viewportWidth);
   const responsiveWordLineHeight = Math.round(responsiveWordSize * 1.15);
   const cardPadding = viewportWidth < 360 ? 18 : 24;
+  const answerInputStyle = [
+    styles.answerInput,
+    Platform.OS === 'web' ? ({ outlineStyle: 'none', boxShadow: 'none' } as const) : null,
+  ];
 
   return (
     <GestureDetector gesture={panGesture}>
@@ -254,7 +258,7 @@ export function FlashCard({
                   returnKeyType="done"
                   onSubmitEditing={onSubmitTypedAnswer}
                   editable={!disabled}
-                  style={[styles.answerInput, Platform.OS === 'web' && styles.answerInputWeb]}
+                  style={answerInputStyle}
                 />
               )}
 
@@ -442,10 +446,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingBottom: 8,
     marginTop: 6,
-  },
-  answerInputWeb: {
-    outlineStyle: 'none',
-    boxShadow: 'none',
   },
   audioButton: {
     minHeight: theme.ctaMinHeight,

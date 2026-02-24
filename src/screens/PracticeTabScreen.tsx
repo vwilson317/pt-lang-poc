@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { FlashSessionScreen } from './FlashSessionScreen';
 import { SentencePracticeScreen } from './SentencePracticeScreen';
 import { WordCardPracticeScreen } from './WordCardPracticeScreen';
@@ -17,12 +17,22 @@ export function PracticeTabScreen() {
   const [mode, setMode] = useState<Mode>('words');
   const [deckName, setDeckName] = useState('...');
 
-  useEffect(() => {
+  const loadSelectedDeckName = React.useCallback(() => {
     void ensureV11Initialized().then(async () => {
       const selectedDeck = await getSelectedDeck();
       setDeckName(selectedDeck.name);
     });
   }, []);
+
+  useEffect(() => {
+    loadSelectedDeckName();
+  }, [loadSelectedDeckName]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadSelectedDeckName();
+    }, [loadSelectedDeckName])
+  );
 
   useEffect(() => {
     if (params.mode === 'sentences' || params.mode === 'phrases' || params.mode === 'words') {
@@ -37,7 +47,11 @@ export function PracticeTabScreen() {
   }, [params.restartSession]);
 
   const sourceClipId = useMemo(
-    () => (typeof params.clipId === 'string' ? params.clipId : undefined),
+    () => {
+      if (typeof params.clipId !== 'string') return undefined;
+      const normalized = params.clipId.trim();
+      return normalized.length > 0 ? normalized : undefined;
+    },
     [params.clipId]
   );
   const phraseWords = useMemo<Word[]>(
@@ -72,7 +86,10 @@ export function PracticeTabScreen() {
           <WordCardPracticeScreen
             sourceClipId={sourceClipId}
             onBack={() => {
-              router.replace('/(tabs)/practice');
+              router.replace({
+                pathname: '/(tabs)/practice',
+                params: { mode: 'words', clipId: '' },
+              });
             }}
           />
         </View>
@@ -143,7 +160,10 @@ export function PracticeTabScreen() {
         sourceClipId={sourceClipId}
         onBack={() => {
           setMode('words');
-          router.replace('/(tabs)/practice');
+          router.replace({
+            pathname: '/(tabs)/practice',
+            params: { mode: 'words', clipId: '' },
+          });
         }}
       />
     </View>

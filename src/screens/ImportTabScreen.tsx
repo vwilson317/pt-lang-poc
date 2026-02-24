@@ -18,6 +18,7 @@ import { theme } from '../theme';
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
 type ImportKind = 'media' | 'whatsapp';
+const ANALYTICS_WAIT_MS = 750;
 
 function sanitizeDeckToken(value: string): string {
   return value.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -47,6 +48,19 @@ async function confirmWhatsAppImportStart(): Promise<boolean> {
       ]
     );
   });
+}
+
+async function trackEventBestEffort(
+  event: string,
+  properties: Record<string, unknown>,
+  timeoutMs: number = ANALYTICS_WAIT_MS
+): Promise<void> {
+  await Promise.race([
+    trackEvent(event, properties),
+    new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), timeoutMs);
+    }),
+  ]);
 }
 
 function normalizedAssetName(asset: PickerAsset): string {
@@ -436,7 +450,7 @@ export function ImportTabScreen() {
       setImportedWordCount(wordCards.length);
       setImportedDeckName(deck.name);
       setImportWarning(parsed.warning ?? null);
-      void trackEvent('whatsapp_import_completed', {
+      await trackEventBestEffort('whatsapp_import_completed', {
         deck_id: deck.id,
         deck_name: deck.name,
         word_cards: wordCards.length,
@@ -470,7 +484,7 @@ export function ImportTabScreen() {
     if (importKind === 'whatsapp') {
       const shouldImport = await confirmWhatsAppImportStart();
       if (!shouldImport) return;
-      void trackEvent('whatsapp_import_confirmed', {
+      await trackEventBestEffort('whatsapp_import_confirmed', {
         file_name: asset.name ?? '',
       });
       await startWhatsAppImport();
