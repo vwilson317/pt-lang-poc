@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Constants from 'expo-constants';
 import type { PracticeLanguage } from '../types/practiceLanguage';
 import { getPracticeLanguageLabel } from '../types/practiceLanguage';
 import { getPracticeLanguage, setPracticeLanguage } from '../lib/storage';
@@ -7,6 +8,15 @@ import { theme } from '../theme';
 
 export function SettingsTabScreen() {
   const [practiceLanguage, setPracticeLanguageState] = useState<PracticeLanguage>('pt');
+  const appVersion = Constants.expoConfig?.version ?? 'dev';
+  const iosBuildNumber = Constants.expoConfig?.ios?.buildNumber;
+  const androidVersionCode = Constants.expoConfig?.android?.versionCode;
+  const buildLabel =
+    iosBuildNumber != null
+      ? `${iosBuildNumber}`
+      : androidVersionCode != null
+      ? `${androidVersionCode}`
+      : 'dev';
 
   const loadLanguage = useCallback(async () => {
     const language = await getPracticeLanguage();
@@ -42,6 +52,7 @@ export function SettingsTabScreen() {
           })}
         </View>
       </View>
+      <Text style={styles.versionText}>Version {appVersion} ({buildLabel})</Text>
     </View>
   );
 }
@@ -94,5 +105,11 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
     fontWeight: '600',
     fontSize: 13,
+  },
+  versionText: {
+    marginTop: 'auto',
+    color: theme.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
   },
 });
