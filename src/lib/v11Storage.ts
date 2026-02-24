@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ClipRecord, Deck, DeckCounts, FlashCardRecord } from '../types/v11';
 import type { Word } from '../types/word';
 import { BUILT_IN_PHRASES } from '../data/phrases';
+import { DECK_LENGTH } from '../data/words';
 
 const KEY_V11_INITIALIZED = 'v11:initialized';
 const KEY_DECKS = 'v11:decks';
@@ -147,8 +148,10 @@ export async function addCards(nextCards: FlashCardRecord[]): Promise<void> {
 export async function getDeckCounts(deckId: string): Promise<DeckCounts> {
   const cards = await getCardsByDeck(deckId);
   const sentence = cards.filter((card) => card.cardType === 'sentence').length;
-  const word = cards.filter((card) => card.cardType === 'word').length;
+  const storedWordCards = cards.filter((card) => card.cardType === 'word').length;
   const phrase = cards.filter((card) => card.cardType === 'phrase').length;
+  // The default deck always includes the built-in core word deck from src/data/words.ts.
+  const word = deckId === DEFAULT_DECK_ID ? DECK_LENGTH + storedWordCards : storedWordCards;
   return {
     total: word + sentence + phrase,
     word,

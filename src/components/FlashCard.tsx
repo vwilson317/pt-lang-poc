@@ -7,6 +7,7 @@ import {
   Pressable,
   TextInput,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -253,7 +254,7 @@ export function FlashCard({
                   returnKeyType="done"
                   onSubmitEditing={onSubmitTypedAnswer}
                   editable={!disabled}
-                  style={styles.answerInput}
+                  style={[styles.answerInput, Platform.OS === 'web' && styles.answerInputWeb]}
                 />
               )}
 
@@ -441,6 +442,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingBottom: 8,
     marginTop: 6,
+  },
+  answerInputWeb: {
+    outlineStyle: 'none',
+    boxShadow: 'none',
   },
   audioButton: {
     minHeight: theme.ctaMinHeight,

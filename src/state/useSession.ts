@@ -5,6 +5,7 @@ import type { PracticeLanguage } from '../types/practiceLanguage';
 import { getShuffledWordIds, getDistractors, getWordsForLanguage } from '../data/words';
 import { addKnownWordId, getKnownWordIds, getSpacedRepetitionMap, saveSpacedRepetitionMap } from '../lib/storage';
 import { moveWordToKnownDeck } from '../lib/v11Storage';
+import { trackEvent } from '../lib/analytics';
 import {
   applyReviewGrade,
   createDefaultSchedule,
@@ -295,6 +296,14 @@ export function useSession() {
     previousOptionsRef.current = options;
     clearedAtMs.current = null;
     setState(createInitialStateFromDeck(deck));
+    void trackEvent('session_started', {
+      language: options.language ?? 'pt',
+      card_count_requested: options.cardCount,
+      deck_size: deck.length,
+      due_selected: selectionStats.selectedDue,
+      new_selected: selectionStats.selectedNew,
+      custom_words: (options.customWords ?? []).length,
+    });
   }, []);
 
   const advanceToNextCard = useCallback(() => {
@@ -371,6 +380,11 @@ export function useSession() {
     const normalizedTypedAnswer = normalizeMaybeText(typedAnswer);
 
     if (correctEn && normalizedTypedAnswer && isTypedAnswerCorrect(normalizedTypedAnswer, correctEn)) {
+      void trackEvent('swipe_right_input_successful_match', {
+        word_id: currentCardId,
+        language: previousOptionsRef.current?.language ?? 'pt',
+        typed_length: normalizedTypedAnswer.length,
+      });
       if (delayedSpellingSuccessTimerRef.current) {
         clearTimeout(delayedSpellingSuccessTimerRef.current);
       }

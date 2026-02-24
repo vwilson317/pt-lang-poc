@@ -12,6 +12,7 @@ import {
   buildWhatsAppImport,
 } from '../lib/whatsAppImport';
 import { ensureLexiconDbInitialized, getTranslationLookupDb } from '../lib/lexiconDb';
+import { trackEvent } from '../lib/analytics';
 import { theme } from '../theme';
 
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
@@ -396,6 +397,10 @@ export function ImportTabScreen() {
       if (parsed.segments.length === 0) {
         setState('FAILED');
         setErrorMessage(parsed.warning ?? 'No usable messages found in this thread export.');
+        void trackEvent('whatsapp_import_failed', {
+          reason: 'no_segments',
+          warning: parsed.warning ?? null,
+        });
         return;
       }
 
@@ -431,6 +436,12 @@ export function ImportTabScreen() {
       setImportedWordCount(wordCards.length);
       setImportedDeckName(deck.name);
       setImportWarning(parsed.warning ?? null);
+      void trackEvent('whatsapp_import_completed', {
+        deck_id: deck.id,
+        deck_name: deck.name,
+        word_cards: wordCards.length,
+        segments: parsed.segments.length,
+      });
       setProgress(100);
       setProgressLabel('Complete');
       setState('DONE');
@@ -441,6 +452,10 @@ export function ImportTabScreen() {
     } catch (error) {
       setState('FAILED');
       const fallback = 'Could not import this WhatsApp export. Try another .txt or .zip file.';
+      void trackEvent('whatsapp_import_failed', {
+        reason: 'exception',
+        message: error instanceof Error ? error.message : String(error),
+      });
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
     }
   }, [
@@ -455,6 +470,9 @@ export function ImportTabScreen() {
     if (importKind === 'whatsapp') {
       const shouldImport = await confirmWhatsAppImportStart();
       if (!shouldImport) return;
+      void trackEvent('whatsapp_import_confirmed', {
+        file_name: asset.name ?? '',
+      });
       await startWhatsAppImport();
       return;
     }

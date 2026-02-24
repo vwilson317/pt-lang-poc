@@ -52,6 +52,7 @@ import {
   setHasActivePracticeSession,
 } from '../lib/storage';
 import { playWordAudio, stopWordAudio } from '../lib/audio';
+import { trackEvent } from '../lib/analytics';
 import { theme } from '../theme';
 import type { Deck, FlashCardRecord } from '../types/v11';
 
@@ -592,7 +593,12 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     const next = cycleAudioPlaybackRate(playbackRate);
     setPlaybackRateState(next);
     void setAudioPlaybackRate(next);
-  }, [playbackRate]);
+    void trackEvent('speed_adjustment_clicked', {
+      previous_rate: playbackRate,
+      next_rate: next,
+      word_id: currentWord?.id ?? null,
+    });
+  }, [currentWord?.id, playbackRate]);
 
   const handleSwipeLeft = useCallback(() => {
     if (state?.currentCardId) {
@@ -617,8 +623,20 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     ) {
       return;
     }
+    void trackEvent('swipe_up_gesture', {
+      word_id: state.currentCardId,
+      ui_state: state.uiState,
+    });
     swipeUp();
   }, [showGestureDemo, state, stopModalVisible, swipeUp]);
+
+  const handleOpenInfo = useCallback(() => {
+    void trackEvent('info_button_selected', {
+      word_id: currentWord?.id ?? null,
+      ui_state: state?.uiState ?? null,
+    });
+    setShowGestureDemo(true);
+  }, [currentWord?.id, state?.uiState]);
 
   const globalSwipeUpGesture = Gesture.Pan()
     .enabled(Boolean(state && state.uiState === 'PROMPT' && !state.cleared && !stopModalVisible && !showGestureDemo))
@@ -1106,7 +1124,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             onChangeTypedAnswer={setTypedAnswer}
             onSubmitTypedAnswer={handleSwipeRight}
             disabled={state.cleared || stopModalVisible || showGestureDemo}
-            onOpenInfo={() => setShowGestureDemo(true)}
+            onOpenInfo={handleOpenInfo}
             onOpenAdd={handleToggleCustomEditor}
           />
         </View>

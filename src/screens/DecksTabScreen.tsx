@@ -4,6 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ensureV11Initialized, getDeckCounts, getDecks, getSelectedDeckId, setSelectedDeck } from '../lib/v11Storage';
 import { getHasActivePracticeSession } from '../lib/storage';
+import { trackEvent } from '../lib/analytics';
 import type { Deck, DeckCounts } from '../types/v11';
 import { theme } from '../theme';
 
@@ -39,6 +40,14 @@ export function DecksTabScreen() {
     if (deck.counts.total === 0) return;
     const confirmAndSwitch = () => {
       void setSelectedDeck(deck.id).then(() => {
+        void trackEvent('deck_selected', {
+          deck_id: deck.id,
+          deck_name: deck.name,
+          total_cards: deck.counts.total,
+          words: deck.counts.word,
+          sentences: deck.counts.sentence,
+          phrases: deck.counts.phrase,
+        });
         void load();
         router.replace({
           pathname: '/(tabs)/practice',
