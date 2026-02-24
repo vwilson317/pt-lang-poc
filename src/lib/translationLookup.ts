@@ -39,7 +39,12 @@ export type TranslationLookupService = {
 let seedBySourceKey: Map<string, TranslationMappingRow> | null = null;
 
 function normalizeToken(value: string): string {
-  return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 function buildSourceLookupKey(
@@ -80,19 +85,6 @@ export function createTranslationLookupService(db?: TranslationLookupDb): Transl
       }
 
       if (db) {
-        const cached = await db.getUserCache({
-          sourceLanguage,
-          targetLanguage,
-          token: sourceToken,
-        });
-        if (cached?.translation) {
-          return {
-            translation: cached.translation,
-            mappingKey: cached.mappingKey,
-            provider: 'db_cache',
-          };
-        }
-
         const mapped = await db.getTranslationMapping({
           sourceLanguage,
           targetLanguage,
@@ -111,6 +103,19 @@ export function createTranslationLookupService(db?: TranslationLookupDb): Transl
             translation: mapped.targetText,
             mappingKey: mapped.mappingKey,
             provider: 'db_mapping',
+          };
+        }
+
+        const cached = await db.getUserCache({
+          sourceLanguage,
+          targetLanguage,
+          token: sourceToken,
+        });
+        if (cached?.translation) {
+          return {
+            translation: cached.translation,
+            mappingKey: cached.mappingKey,
+            provider: 'db_cache',
           };
         }
       }
@@ -143,15 +148,6 @@ export function createTranslationLookupService(db?: TranslationLookupDb): Transl
       }
 
       const fallback = normalizeToken(fallbackTranslation || '') || sourceToken;
-      if (db) {
-        await db.putUserCache({
-          sourceLanguage,
-          targetLanguage,
-          token: sourceToken,
-          translation: fallback,
-          updatedAtMs: Date.now(),
-        });
-      }
       return {
         translation: fallback,
         provider: 'fallback',

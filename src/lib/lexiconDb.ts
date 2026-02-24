@@ -17,7 +17,12 @@ type MappingLookupIndex = Record<string, TranslationMappingRow>;
 type UserCacheLookupIndex = Record<string, UserCacheRow>;
 
 function normalizeToken(value: string): string {
-  return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 function mappingLookupKey(

@@ -766,9 +766,9 @@ function resolveWordType(word: Pick<Word, 'wordType' | 'en'>): string | undefine
 
 function getAllowedDistractorTypes(correctWord: Word | undefined): string[] {
   const type = resolveWordType(correctWord ?? {});
-  if (type === 'noun') return ['noun', 'verb'];
-  if (type === 'verb') return ['verb', 'adjective'];
-  if (type === 'adjective') return ['adjective', 'noun'];
+  if (type === 'noun') return ['noun'];
+  if (type === 'verb') return ['verb'];
+  if (type === 'adjective') return ['adjective'];
   return [];
 }
 
