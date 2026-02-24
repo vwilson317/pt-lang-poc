@@ -11,6 +11,7 @@ const KEY_HAS_SEEN_GESTURE_DEMO = 'hasSeenGestureDemo';
 const KEY_PRACTICE_LANGUAGE = 'practiceLanguage';
 const KEY_CUSTOM_WORDS_LEGACY = 'customWords';
 const KEY_SPACED_REPETITION_PREFIX = 'spacedRepetition:v1:';
+const KEY_KNOWN_WORDS_PREFIX = 'knownWords:v1:';
 
 export async function getBestClearMs(): Promise<number | null> {
   const raw = await AsyncStorage.getItem(KEY_BEST_CLEAR_MS);
@@ -63,6 +64,10 @@ function getCustomWordsKey(language: PracticeLanguage): string {
   return `customWords:${language}`;
 }
 
+function getKnownWordsKey(language: PracticeLanguage): string {
+  return `${KEY_KNOWN_WORDS_PREFIX}${language}`;
+}
+
 export async function getPracticeLanguage(): Promise<PracticeLanguage> {
   const raw = await AsyncStorage.getItem(KEY_PRACTICE_LANGUAGE);
   if (raw && isPracticeLanguage(raw)) return raw;
@@ -107,6 +112,30 @@ export async function saveCustomWords(words: Word[], language: PracticeLanguage 
 
 export async function clearCustomWords(language: PracticeLanguage = 'pt'): Promise<void> {
   await AsyncStorage.removeItem(getCustomWordsKey(language));
+}
+
+export async function getKnownWordIds(language: PracticeLanguage = 'pt'): Promise<Set<string>> {
+  const raw = await AsyncStorage.getItem(getKnownWordsKey(language));
+  if (raw == null) return new Set();
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    const ids = parsed
+      .map((value) => normalizeMaybeString(value))
+      .filter((value): value is string => value != null);
+    return new Set(ids);
+  } catch {
+    return new Set();
+  }
+}
+
+export async function addKnownWordId(wordId: string, language: PracticeLanguage = 'pt'): Promise<void> {
+  const normalized = normalizeMaybeString(wordId);
+  if (!normalized) return;
+  const known = await getKnownWordIds(language);
+  if (known.has(normalized)) return;
+  known.add(normalized);
+  await AsyncStorage.setItem(getKnownWordsKey(language), JSON.stringify(Array.from(known)));
 }
 
 // --- Audio playback speed (v1.1) ---

@@ -1,4 +1,5 @@
 import type { ClipSegment } from '../types/v11';
+import { translatePtBrMessageWithPhraseEscalation } from './ptBrTranslation';
 
 export type WhatsAppMessage = {
   sender: string;
@@ -148,14 +149,17 @@ export function buildWhatsAppImport(
     ).values()
   );
 
-  const segments: ClipSegment[] = deduped.map((message, index) => ({
-    id: `wa-seg-${index + 1}`,
-    startMs: index * 1000,
-    endMs: index * 1000,
-    textOriginal: message,
-    // We only have source chat text in this flow, so we keep back identical for now.
-    textTranslated: message,
-  }));
+  const segments: ClipSegment[] = deduped.map((message, index) => {
+    const translated = translatePtBrMessageWithPhraseEscalation(message);
+    return {
+      id: `wa-seg-${index + 1}`,
+      startMs: index * 1000,
+      endMs: index * 1000,
+      textOriginal: message,
+      textTranslated: translated.textTranslated,
+      tokens: translated.tokens,
+    };
+  });
 
   const warningBits: string[] = [];
   if (!messages.length) warningBits.push('No WhatsApp messages were recognized in this file.');

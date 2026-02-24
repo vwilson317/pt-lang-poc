@@ -30,7 +30,6 @@ const customCardSurfaceColors = [
   'rgba(255,255,255,0.24)',
   'rgba(156, 84, 213, 0.12)',
 ] as const;
-const customAudioButtonColors = ['#462964', '#5EE2F0'] as const;
 const LONG_WORD_WRAP_CHUNK = 12;
 
 function addSoftBreaksToLongWord(value: string): string {
@@ -268,7 +267,7 @@ export function FlashCard({
                   disabled={disabled}
                 >
                   <LinearGradient
-                    colors={[...(isCustomWord ? customAudioButtonColors : audioButtonColors)]}
+                    colors={[...audioButtonColors]}
                     style={StyleSheet.absoluteFill}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
@@ -350,7 +349,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     borderRadius: theme.cardRadius,
     borderWidth: 1,
-    borderColor: theme.stroke,
+    borderColor: 'rgba(255,255,255,0.2)',
     overflow: 'hidden',
     ...theme.cardShadow,
   },
@@ -500,9 +499,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderRadius: theme.optionRadius,
-    backgroundColor: theme.surfaceStrong,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
-    borderColor: theme.stroke,
+    borderColor: 'rgba(255,255,255,0.32)',
   },
   optionCorrect: {
     borderColor: theme.good,

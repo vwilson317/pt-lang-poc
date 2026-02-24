@@ -30,6 +30,15 @@ function sanitizeTokenForCardId(value: string): string {
     .replace(/(^-|-$)/g, '');
 }
 
+function normalizeEnglishGuess(value: string): string {
+  return value
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+or\s+/gi, '/')
+    .split(/[\/|,;]/)[0]
+    .trim()
+    .toLocaleLowerCase();
+}
+
 function buildWordCardsFromSegments(
   segments: ClipSegment[],
   deckId: string,
@@ -38,21 +47,29 @@ function buildWordCardsFromSegments(
   const seen = new Set<string>();
   const cards: FlashCardRecord[] = [];
   for (const segment of segments) {
-    const tokens = segment.textOriginal.match(/[A-Za-zÀ-ÖØ-öø-ÿ']+/g) ?? [];
-    for (const token of tokens) {
-      const normalized = token.trim().toLocaleLowerCase();
-      if (normalized.length < 2) continue;
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      const slug = sanitizeTokenForCardId(normalized);
+    const segmentTokens = segment.tokens?.length
+      ? segment.tokens.map((token) => ({
+          front: token.text.trim().toLocaleLowerCase(),
+          back: token.translation?.trim(),
+        }))
+      : (segment.textOriginal.match(/[A-Za-zÀ-ÖØ-öø-ÿ']+/g) ?? []).map((token) => ({
+          front: token.trim().toLocaleLowerCase(),
+          back: undefined,
+        }));
+    for (const token of segmentTokens) {
+      const normalizedFront = token.front;
+      if (normalizedFront.length < 2) continue;
+      if (seen.has(normalizedFront)) continue;
+      seen.add(normalizedFront);
+      const slug = sanitizeTokenForCardId(normalizedFront);
       if (!slug) continue;
+      const normalizedBack = normalizeEnglishGuess(token.back ?? normalizedFront);
       cards.push({
         id: `word-${clipId}-${slug}`,
         deckId,
         cardType: 'word',
-        front: normalized,
-        // WhatsApp import currently has no reliable EN translation per token.
-        back: normalized,
+        front: normalizedFront,
+        back: normalizedBack || normalizedFront,
         sourceClipId: clipId,
         createdAt: Date.now() + cards.length,
       });

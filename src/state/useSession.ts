@@ -3,7 +3,8 @@ import type { SessionState } from '../types/session';
 import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
 import { getShuffledWordIds, getDistractors, getWordsForLanguage } from '../data/words';
-import { getSpacedRepetitionMap, saveSpacedRepetitionMap } from '../lib/storage';
+import { addKnownWordId, getKnownWordIds, getSpacedRepetitionMap, saveSpacedRepetitionMap } from '../lib/storage';
+import { moveWordToKnownDeck } from '../lib/v11Storage';
 import {
   applyReviewGrade,
   createDefaultSchedule,
@@ -74,6 +75,77 @@ function normalizeAnswerText(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
+function stripParentheticalText(value: string): string {
+  return value.replace(/\([^)]*\)/g, ' ');
+}
+
+function splitMeaningVariants(value: string): string[] {
+  const withoutParens = stripParentheticalText(value)
+    .replace(/\s+or\s+/gi, '/')
+    .replace(/[;|]/g, '/')
+    .trim();
+  if (!withoutParens) return [];
+
+  const rawParts = withoutParens
+    .split(/[\/,]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (rawParts.length <= 1) return [normalizeAnswerText(withoutParens)];
+
+  const first = rawParts[0];
+  const firstHasTo = /^to\s+/i.test(first);
+  const out = new Set<string>();
+  for (const part of rawParts) {
+    out.add(normalizeAnswerText(part));
+    if (firstHasTo && !/^to\s+/i.test(part)) {
+      out.add(normalizeAnswerText(`to ${part}`));
+    }
+  }
+  return Array.from(out).filter(Boolean);
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  if (left === right) return 0;
+  if (left.length === 0) return right.length;
+  if (right.length === 0) return left.length;
+  const prev = new Array(right.length + 1);
+  const next = new Array(right.length + 1);
+  for (let j = 0; j <= right.length; j += 1) prev[j] = j;
+  for (let i = 1; i <= left.length; i += 1) {
+    next[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      next[j] = Math.min(
+        next[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + cost
+      );
+    }
+    for (let j = 0; j <= right.length; j += 1) prev[j] = next[j];
+  }
+  return prev[right.length];
+}
+
+function isAnswerCloseEnough(typed: string, expected: string): boolean {
+  if (!typed || !expected) return false;
+  if (typed === expected) return true;
+  if (typed.length >= 4 && expected.includes(typed)) return true;
+  if (expected.length >= 4 && typed.includes(expected)) return true;
+  const maxLen = Math.max(typed.length, expected.length);
+  const allowedDistance = maxLen <= 5 ? 1 : maxLen <= 10 ? 2 : 3;
+  return levenshteinDistance(typed, expected) <= allowedDistance;
+}
+
+function isTypedAnswerCorrect(typedAnswer: string, correctAnswer: string): boolean {
+  const normalizedTyped = normalizeAnswerText(stripParentheticalText(typedAnswer));
+  if (!normalizedTyped) return false;
+  const variants = splitMeaningVariants(correctAnswer);
+  const normalizedVariants = variants.length > 0
+    ? variants
+    : [normalizeAnswerText(stripParentheticalText(correctAnswer))];
+  return normalizedVariants.some((expected) => isAnswerCloseEnough(normalizedTyped, expected));
+}
+
 function normalizeStartSessionInput(input: StartSessionInput): StartSessionOptions {
   if (typeof input === 'number') {
     return { cardCount: Math.max(0, Math.floor(input)), customWords: [], language: 'pt' };
@@ -111,9 +183,12 @@ async function buildSessionDeck(options: StartSessionOptions): Promise<{
   selectionStats: SessionSelectionStats;
 }> {
   const nowMs = Date.now();
-  const defaultDeck = getWordsForLanguage(options.language ?? 'pt');
-  const schedules = await getSpacedRepetitionMap(options.language ?? 'pt');
-  const byId = new Map(defaultDeck.map((word) => [word.id, word]));
+  const language = options.language ?? 'pt';
+  const defaultDeck = getWordsForLanguage(language);
+  const knownWordIds = await getKnownWordIds(language);
+  const schedules = await getSpacedRepetitionMap(language);
+  const filteredDefaultDeck = defaultDeck.filter((word) => !knownWordIds.has(word.id));
+  const byId = new Map(filteredDefaultDeck.map((word) => [word.id, word]));
 
   const selectedByShuffle = getShuffledWordIds()
     .map((id) => byId.get(id))
@@ -191,6 +266,14 @@ export function useSession() {
     lastReviewRef.current = { wordId, grade, schedule: nextSchedule };
     const language = previousOptionsRef.current?.language ?? 'pt';
     void saveSpacedRepetitionMap(nextMap, language);
+  }, []);
+
+  const markWordKnown = useCallback((wordId: string) => {
+    const language = previousOptionsRef.current?.language ?? 'pt';
+    const word = deckByIdRef.current.get(wordId);
+    if (!word || word.isCustom) return;
+    void addKnownWordId(wordId, language);
+    void moveWordToKnownDeck(word);
   }, []);
 
   const startFromOptions = useCallback(async (input: StartSessionInput) => {
@@ -285,6 +368,7 @@ export function useSession() {
         const newQueue = prev.queue.filter((x) => x !== id);
         const newCorrectSet = new Set(prev.correctSet);
         newCorrectSet.add(id);
+        markWordKnown(id);
         const cleared = newCorrectSet.size === prev.deckCount;
         if (cleared) clearedAtMs.current = Date.now();
         return {
@@ -301,14 +385,13 @@ export function useSession() {
       }
       const normalizedTypedAnswer = normalizeMaybeText(typedAnswer);
       if (normalizedTypedAnswer) {
-        const isTypedAnswerCorrect =
-          normalizeAnswerText(normalizedTypedAnswer) === normalizeAnswerText(correctEn);
-        if (isTypedAnswerCorrect) {
+        if (isTypedAnswerCorrect(normalizedTypedAnswer, correctEn)) {
           const id = prev.currentCardId;
           const newQueue = prev.queue.filter((x) => x !== id);
           const newCorrectSet = new Set(prev.correctSet);
           newCorrectSet.add(id);
           persistReview(id, 'good');
+          markWordKnown(id);
           const cleared = newCorrectSet.size === prev.deckCount;
           if (cleared) clearedAtMs.current = Date.now();
           return {
@@ -342,7 +425,7 @@ export function useSession() {
         currentCardWasGuess: false,
       };
     });
-  }, []);
+  }, [markWordKnown, persistReview]);
 
   const chooseOption = useCallback((choiceIndex: number) => {
     setState((prev) => {
@@ -360,6 +443,7 @@ export function useSession() {
         const newCorrectSet = new Set(prev.correctSet);
         newCorrectSet.add(id);
         persistReview(id, prev.currentCardWasGuess ? 'guess' : 'good');
+        markWordKnown(id);
         const cleared = newCorrectSet.size === prev.deckCount;
         if (cleared) clearedAtMs.current = Date.now();
         return {
@@ -388,7 +472,7 @@ export function useSession() {
         currentCardWasGuess: false,
       };
     });
-  }, [persistReview]);
+  }, [markWordKnown, persistReview]);
 
   const startSession = useCallback((input: StartSessionInput) => {
     void startFromOptions(input);

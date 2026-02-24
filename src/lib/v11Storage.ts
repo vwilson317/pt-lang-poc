@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ClipRecord, Deck, DeckCounts, FlashCardRecord } from '../types/v11';
+import type { Word } from '../types/word';
 import { BUILT_IN_PHRASES } from '../data/phrases';
 
 const KEY_V11_INITIALIZED = 'v11:initialized';
@@ -8,6 +9,7 @@ const KEY_SELECTED_DECK_ID = 'v11:selectedDeckId';
 const KEY_CARDS = 'v11:cards';
 const KEY_CLIPS = 'v11:clips';
 const DEFAULT_DECK_ID = 'default';
+const KNOWN_DECK_ID = 'known-cards';
 
 function nowMs(): number {
   return Date.now();
@@ -19,6 +21,17 @@ function defaultDeck(): Deck {
     id: DEFAULT_DECK_ID,
     name: 'Default',
     isSelected: true,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+}
+
+function knownDeck(): Deck {
+  const ts = nowMs();
+  return {
+    id: KNOWN_DECK_ID,
+    name: 'Known Cards',
+    isSelected: false,
     createdAt: ts,
     updatedAt: ts,
   };
@@ -40,10 +53,16 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
 
 export async function ensureV11Initialized(): Promise<void> {
   const initialized = await AsyncStorage.getItem(KEY_V11_INITIALIZED);
-  if (initialized === 'true') return;
+  if (initialized === 'true') {
+    const decks = await readJson<Deck[]>(KEY_DECKS, [defaultDeck()]);
+    const byId = new Map(decks.map((deck) => [deck.id, deck]));
+    if (!byId.has(DEFAULT_DECK_ID)) byId.set(DEFAULT_DECK_ID, defaultDeck());
+    if (!byId.has(KNOWN_DECK_ID)) byId.set(KNOWN_DECK_ID, knownDeck());
+    await writeJson(KEY_DECKS, Array.from(byId.values()));
+    return;
+  }
 
-  const deck = defaultDeck();
-  await writeJson(KEY_DECKS, [deck]);
+  await writeJson(KEY_DECKS, [defaultDeck(), knownDeck()]);
   await AsyncStorage.setItem(KEY_SELECTED_DECK_ID, DEFAULT_DECK_ID);
   await writeJson(KEY_CARDS, []);
   await writeJson(KEY_CLIPS, []);
@@ -202,4 +221,48 @@ export async function getPhraseCards(deckId: string, sourceClipId?: string): Pro
     if (!sourceClipId) return true;
     return card.sourceClipId === sourceClipId;
   });
+}
+
+function normalizeWordSlug(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+export async function moveWordToKnownDeck(word: Word): Promise<void> {
+  const normalizedTerm = word.term?.trim();
+  if (!normalizedTerm) return;
+  const slug = normalizeWordSlug(word.id || normalizedTerm);
+  if (!slug) return;
+  await ensureV11Initialized();
+  const cards = await getCards();
+  const ts = nowMs();
+  const knownCardId = `known-word-${slug}`;
+  const normalizedTermLower = normalizedTerm.toLocaleLowerCase();
+  const updatedCards = cards.map((card) => {
+    if (card.cardType !== 'word') return card;
+    if (card.id === knownCardId) return card;
+    if (card.deckId !== DEFAULT_DECK_ID) return card;
+    if (card.front.trim().toLocaleLowerCase() !== normalizedTermLower) return card;
+    return {
+      ...card,
+      deckId: KNOWN_DECK_ID,
+    };
+  });
+
+  const hasKnownCard = updatedCards.some((card) => card.id === knownCardId);
+  if (!hasKnownCard) {
+    updatedCards.push({
+      id: knownCardId,
+      deckId: KNOWN_DECK_ID,
+      cardType: 'word',
+      front: normalizedTermLower,
+      back: (word.en?.trim() || normalizedTermLower).toLocaleLowerCase(),
+      createdAt: ts,
+    });
+  }
+  await writeJson(KEY_CARDS, updatedCards);
 }
