@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import JSZip from 'jszip';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
@@ -27,6 +27,25 @@ function buildWhatsAppDeckName(assetName: string | undefined, clipId: string): s
   const base = baseName ? `WA ${baseName}` : 'WA Thread';
   const suffix = clipId.slice(-4);
   return `${base} ${suffix}`;
+}
+
+async function confirmWhatsAppImportStart(): Promise<boolean> {
+  if (Platform.OS === 'web') {
+    if (typeof window === 'undefined' || typeof window.confirm !== 'function') return true;
+    return window.confirm(
+      'Importing this conversation will create and select a new deck, and start a new word session with these words. Continue?'
+    );
+  }
+  return new Promise<boolean>((resolve) => {
+    Alert.alert(
+      'Start new session?',
+      'Importing this conversation will create and select a new deck, and start a new word session with these words.',
+      [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Import', onPress: () => resolve(true) },
+      ]
+    );
+  });
 }
 
 function normalizedAssetName(asset: PickerAsset): string {
@@ -434,16 +453,7 @@ export function ImportTabScreen() {
   const startUpload = useCallback(async () => {
     if (!asset) return;
     if (importKind === 'whatsapp') {
-      const shouldImport = await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          'Start new session?',
-          'Importing this conversation will create and select a new deck, and start a new word session with these words.',
-          [
-            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Import', onPress: () => resolve(true) },
-          ]
-        );
-      });
+      const shouldImport = await confirmWhatsAppImportStart();
       if (!shouldImport) return;
       await startWhatsAppImport();
       return;
