@@ -40,14 +40,21 @@ function fakeDbForLookupOrder(): TranslationLookupDb {
 }
 
 export async function runWhatsAppImportIntegrationTest(): Promise<void> {
-  const raw = '[01/01/2026, 10:00:00 AM] +55 11 90000-0000: oi tudo';
+  const raw = [
+    '[01/01/2026, 10:00:00 AM] +55 11 90000-0000: oi tudo',
+    '[01/01/2026, 10:01:00 AM] +55 11 90000-0000: tudo bem',
+  ].join('\n');
   const parsed = await buildWhatsAppImport(raw, { translationDb: fakeDbForLookupOrder() });
-  assert(parsed.segments.length === 1, 'expected one parsed segment');
+  assert(parsed.segments.length === 2, 'expected two parsed segments');
   const tokens = parsed.segments[0]?.tokens ?? [];
   const oi = tokens.find((token) => token.text === 'oi');
   const tudo = tokens.find((token) => token.text === 'tudo');
   assert(oi?.translation === 'hello-from-cache', 'expected cache hit to win for "oi"');
   assert(tudo?.translation === 'everything', 'expected db mapping to win for "tudo"');
+  assert(
+    parsed.segments[1]?.textTranslated === 'how are you',
+    'expected phrase-level translation to be preserved for transcript output'
+  );
 }
 
 declare const require: any;

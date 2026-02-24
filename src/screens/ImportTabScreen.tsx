@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import JSZip from 'jszip';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { createJob, getJobResult, getJobStatus } from '../lib/jobsApi';
-import { addCards, getSelectedDeckId, upsertClip } from '../lib/v11Storage';
+import { addCards, createDeck, getSelectedDeckId, setSelectedDeck, upsertClip } from '../lib/v11Storage';
 import type { ClipSegment, ClipStatus, FlashCardRecord } from '../types/v11';
 import { makeId } from '../lib/id';
 import {
@@ -17,6 +17,17 @@ import { theme } from '../theme';
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
 type ImportKind = 'media' | 'whatsapp';
+
+function sanitizeDeckToken(value: string): string {
+  return value.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function buildWhatsAppDeckName(assetName: string | undefined, clipId: string): string {
+  const baseName = sanitizeDeckToken(assetName ?? '');
+  const base = baseName ? `WA ${baseName}` : 'WA Thread';
+  const suffix = clipId.slice(-4);
+  return `${base} ${suffix}`;
+}
 
 function normalizedAssetName(asset: PickerAsset): string {
   return (asset.name ?? '').trim().toLowerCase();
@@ -161,6 +172,7 @@ export function ImportTabScreen() {
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const [importedCardsCount, setImportedCardsCount] = useState(0);
   const [importedWordCount, setImportedWordCount] = useState(0);
+  const [importedDeckName, setImportedDeckName] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -338,6 +350,7 @@ export function ImportTabScreen() {
     setImportWarning(null);
     setImportedCardsCount(0);
     setImportedWordCount(0);
+    setImportedDeckName(null);
     setJobId(null);
     setWhatsAppTextCache(null);
   }, [isWhatsAppAsset]);
@@ -383,7 +396,10 @@ export function ImportTabScreen() {
       };
 
       await upsertClip(clip);
-      const deckId = await getSelectedDeckId();
+      const deckName = buildWhatsAppDeckName(asset?.name, clip.id);
+      const deck = await createDeck(deckName);
+      await setSelectedDeck(deck.id);
+      const deckId = deck.id;
       const wordCards = buildWordCardsFromSegments(clip.segments, deckId, clip.id);
       if (wordCards.length === 0) {
         setState('FAILED');
@@ -394,13 +410,14 @@ export function ImportTabScreen() {
       await addCards(wordCards);
       setImportedCardsCount(wordCards.length);
       setImportedWordCount(wordCards.length);
+      setImportedDeckName(deck.name);
       setImportWarning(parsed.warning ?? null);
       setProgress(100);
       setProgressLabel('Complete');
       setState('DONE');
       router.push({
         pathname: '/(tabs)/practice',
-        params: { mode: 'words', clipId: clip.id },
+        params: { mode: 'words', clipId: clip.id, restartSession: String(Date.now()) },
       });
     } catch (error) {
       setState('FAILED');
@@ -417,6 +434,17 @@ export function ImportTabScreen() {
   const startUpload = useCallback(async () => {
     if (!asset) return;
     if (importKind === 'whatsapp') {
+      const shouldImport = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Start new session?',
+          'Importing this conversation will create and select a new deck, and start a new word session with these words.',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Import', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!shouldImport) return;
       await startWhatsAppImport();
       return;
     }
@@ -477,7 +505,7 @@ export function ImportTabScreen() {
         {importKind === 'whatsapp' && (
           <View style={styles.whatsAppOptions}>
             <Text style={styles.helper}>
-              We import the full conversation and create word cards.
+              We import the full conversation, create a new deck, select it, and start a new word session.
             </Text>
           </View>
         )}
@@ -532,6 +560,9 @@ export function ImportTabScreen() {
         ) : (
           <Text style={styles.helper}>Created {importedCardsCount} word cards.</Text>
         )}
+        {importKind === 'whatsapp' && importedDeckName && (
+          <Text style={styles.helper}>Selected deck: {importedDeckName}</Text>
+        )}
         {importWarning && <Text style={styles.warning}>{importWarning}</Text>}
         <View style={styles.row}>
           <Pressable style={styles.primaryButton} onPress={() => router.push('/(tabs)/imports')}>
@@ -547,6 +578,7 @@ export function ImportTabScreen() {
               setImportWarning(null);
               setImportedCardsCount(0);
               setImportedWordCount(0);
+              setImportedDeckName(null);
               setWhatsAppTextCache(null);
               setProgress(0);
             }}
@@ -572,6 +604,7 @@ export function ImportTabScreen() {
           setImportWarning(null);
           setImportedCardsCount(0);
           setImportedWordCount(0);
+          setImportedDeckName(null);
           setWhatsAppTextCache(null);
           setJobId(null);
           setProgress(0);

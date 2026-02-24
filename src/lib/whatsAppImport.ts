@@ -174,15 +174,9 @@ export async function buildWhatsAppImport(
           };
         })
       );
-      const translatedParts: string[] = [];
-      for (const token of tokens) {
-        const normalizedTranslation = token.translation?.trim();
-        if (!normalizedTranslation) continue;
-        if (translatedParts[translatedParts.length - 1] === normalizedTranslation) continue;
-        translatedParts.push(normalizedTranslation);
-      }
       return {
-        textTranslated: translatedParts.join(' ') || fallback.textTranslated,
+        // Keep phrase-aware translation for transcript quality; token-level lookups are for cards.
+        textTranslated: fallback.textTranslated,
         tokens,
       };
     })
