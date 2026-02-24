@@ -1,4 +1,4 @@
-import React, { useEffect, useState, type ReactNode } from 'react';
+import React, { type ReactNode } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { theme } from '../theme';
@@ -9,21 +9,8 @@ type HeaderHUDProps = {
   skippedCount: number;
   guessedCount: number;
   remaining: number;
-  startedAt: number | null;
-  frozen?: boolean;
   actions?: ReactNode;
 };
-
-function formatElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h >= 1) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  }
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 export function HeaderHUD({
   rightCount,
@@ -31,57 +18,38 @@ export function HeaderHUD({
   skippedCount,
   guessedCount,
   remaining,
-  startedAt,
-  frozen = false,
   actions,
 }: HeaderHUDProps) {
-  const [elapsedMs, setElapsedMs] = useState(0);
-
-  useEffect(() => {
-    if (startedAt == null || frozen) return;
-    const tick = () => setElapsedMs(Date.now() - startedAt);
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [startedAt, frozen]);
-
   return (
     <View style={styles.wrapper}>
       <View style={styles.container}>
-        <View style={styles.statsRow}>
-          <View style={styles.statPill}>
-            <FontAwesome5 name="check-circle" size={theme.iconSizeHud} color={theme.good} solid />
-            <Text style={styles.count}>{rightCount}</Text>
+        <View style={styles.topRow}>
+          <View style={styles.statsRow}>
+            <View style={styles.statPill}>
+              <FontAwesome5 name="check-circle" size={theme.iconSizeHud - 1} color={theme.good} solid />
+              <Text style={styles.count}>{rightCount}</Text>
+            </View>
+            <View style={styles.statPill}>
+              <FontAwesome5 name="times-circle" size={theme.iconSizeHud - 1} color={theme.bad} solid />
+              <Text style={styles.count}>{incorrectCount}</Text>
+            </View>
+            <View style={styles.statPill}>
+              <FontAwesome5 name="forward" size={theme.iconSizeHud - 2} color={theme.info} solid />
+              <Text style={styles.count}>{skippedCount}</Text>
+            </View>
+            <View style={styles.statPill}>
+              <FontAwesome5 name="arrow-up" size={theme.iconSizeHud - 2} color={theme.warning} solid />
+              <Text style={styles.count}>{guessedCount}</Text>
+            </View>
           </View>
-          <View style={styles.statPill}>
-            <FontAwesome5 name="times-circle" size={theme.iconSizeHud} color={theme.bad} solid />
-            <Text style={styles.count}>{incorrectCount}</Text>
-          </View>
-          <View style={styles.statPill}>
-            <FontAwesome5 name="forward" size={theme.iconSizeHud} color={theme.info} solid />
-            <Text style={styles.count}>{skippedCount}</Text>
-          </View>
-          <View style={styles.statPill}>
-            <FontAwesome5 name="arrow-up" size={theme.iconSizeHud} color="#F5B94C" solid />
-            <Text style={styles.count}>{guessedCount}</Text>
-          </View>
-          <View style={styles.statPill}>
-            <FontAwesome5 name="layer-group" size={theme.iconSizeHud} color={theme.brand} solid />
-            <Text style={styles.count}>{remaining}</Text>
+          <View style={styles.remainingPill}>
+            <FontAwesome5 name="layer-group" size={theme.iconSizeHud - 2} color={theme.accent400} solid />
+            <Text style={styles.remainingCount}>{remaining}</Text>
+            <Text style={styles.remainingLabel}>left</Text>
           </View>
         </View>
-        {(startedAt != null || actions != null) && (
+        {actions != null && (
           <View style={styles.footerRow}>
-            <View style={styles.timeRow}>
-              {startedAt != null && (
-                <>
-                  <FontAwesome5 name="clock" size={theme.iconSizeHud - 2} color={theme.info} solid />
-                  <Text style={styles.timeText} numberOfLines={1}>
-                    {formatElapsed(elapsedMs)}
-                  </Text>
-                </>
-              )}
-            </View>
             {actions != null ? <View style={styles.actionsSlot}>{actions}</View> : null}
           </View>
         )}
@@ -93,19 +61,24 @@ export function HeaderHUD({
 const styles = StyleSheet.create({
   wrapper: {
     paddingHorizontal: 12,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   container: {
-    minHeight: theme.hudHeight,
-    borderRadius: theme.hudRadius,
-    backgroundColor: theme.surface,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
-    borderColor: theme.stroke,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     ...(Platform.OS === 'ios' && {
       overflow: 'hidden',
     }),
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   statsRow: {
     flexDirection: 'row',
@@ -113,35 +86,37 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
     justifyContent: 'flex-start',
+    flex: 1,
   },
   statPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    height: 28,
-    paddingHorizontal: 8,
-    borderRadius: 14,
-    backgroundColor: theme.surfaceStrong,
+    gap: 4,
+    height: 30,
+    paddingHorizontal: 9,
+    borderRadius: 15,
+    backgroundColor: theme.surface,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: theme.strokeSoft,
+  },
+  remainingPill: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(156, 84, 213, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(201, 167, 255, 0.52)',
   },
   footerRow: {
-    marginTop: 6,
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: 8,
-  },
-  timeRow: {
-    minHeight: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   actionsSlot: {
     flexDirection: 'row',
@@ -152,9 +127,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.textPrimary,
   },
-  timeText: {
-    fontSize: 13,
-    fontWeight: '700',
+  remainingCount: {
+    fontSize: 14,
+    fontWeight: '800',
     color: theme.textPrimary,
+  },
+  remainingLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
 });

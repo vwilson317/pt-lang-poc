@@ -28,6 +28,13 @@ import { getPracticeLanguageLabel } from '../types/practiceLanguage';
 import { useSession } from '../state/useSession';
 import { getWordByIdForLanguage, DECK_LENGTH } from '../data/words';
 import {
+  addCards,
+  createDeck,
+  getDecks,
+  getSelectedDeckId,
+  setSelectedDeck,
+} from '../lib/v11Storage';
+import {
   getBestClearMs,
   setBestClearMs,
   incrementRunsCount,
@@ -45,6 +52,7 @@ import {
 } from '../lib/storage';
 import { playWordAudio, stopWordAudio } from '../lib/audio';
 import { theme } from '../theme';
+import type { Deck, FlashCardRecord } from '../types/v11';
 
 const bgImage = require('../../v1/bg.png');
 
@@ -58,6 +66,8 @@ type ParsedCustomEntry = {
   en?: string;
 };
 
+type ImportDeckMode = 'existing' | 'new';
+
 type MissedWordExportItem = {
   id: string;
   term: string;
@@ -70,6 +80,24 @@ type MissedWordExportItem = {
 
 function normalizeWordToken(value: string): string {
   return value.replace(/\s+/g, '').trim();
+}
+
+function sanitizeWordSlug(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h >= 1) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 function normalizeDefinitionToken(value: string | undefined): string | undefined {
@@ -242,10 +270,13 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
   const [customWords, setCustomWords] = React.useState<Word[]>([]);
   const [customInput, setCustomInput] = React.useState('');
   const [showCustomEditor, setShowCustomEditor] = React.useState(false);
-  const [showCustomTooltip, setShowCustomTooltip] = React.useState(false);
   const [customFeedback, setCustomFeedback] = React.useState<string | null>(null);
   const [customError, setCustomError] = React.useState<string | null>(null);
   const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
+  const [availableDecks, setAvailableDecks] = React.useState<Deck[]>([]);
+  const [importDeckMode, setImportDeckMode] = React.useState<ImportDeckMode>('existing');
+  const [importDeckId, setImportDeckId] = React.useState<string>('default');
+  const [newDeckName, setNewDeckName] = React.useState('');
   const [modalDismissed, setModalDismissed] = React.useState(false);
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
   const [skippedCountsById, setSkippedCountsById] = React.useState<Record<string, number>>({});
@@ -256,6 +287,7 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
   const [practiceLanguage, setPracticeLanguage] = React.useState<PracticeLanguage>('pt');
   const [showSchedulerDebug, setShowSchedulerDebug] = React.useState(false);
   const [typedAnswer, setTypedAnswer] = React.useState('');
+  const [elapsedMs, setElapsedMs] = React.useState(0);
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
@@ -354,6 +386,31 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
     if (!state) sessionInitRanRef.current = false;
   }, [state]);
 
+  useEffect(() => {
+    if (!state?.startedAt || state.cleared || stopModalVisible) return;
+    const tick = () => setElapsedMs(Date.now() - state.startedAt);
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [state?.startedAt, state?.cleared, stopModalVisible]);
+
+  useEffect(() => {
+    if (!state?.startedAt) setElapsedMs(0);
+  }, [state?.startedAt]);
+
+  const refreshDeckTargets = useCallback(async () => {
+    const [decks, selectedDeckId] = await Promise.all([getDecks(), getSelectedDeckId()]);
+    setAvailableDecks(decks);
+    setImportDeckId((prev) => {
+      if (decks.some((deck) => deck.id === prev)) return prev;
+      return selectedDeckId;
+    });
+  }, []);
+
+  useEffect(() => {
+    void refreshDeckTargets();
+  }, [refreshDeckTargets]);
+
   const handleAddCustomWords = useCallback(async () => {
     const parsedEntries = parseCustomWordInput(customInput);
     if (parsedEntries.length === 0) {
@@ -364,7 +421,7 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
     const existingPt = new Set(
       customWords.map((word) => word.term.trim().toLocaleLowerCase())
     );
-    const seed = Date.now();
+    const customSeed = Date.now();
     const additions: Word[] = [];
     for (let index = 0; index < parsedEntries.length; index += 1) {
       const entry = parsedEntries[index];
@@ -376,7 +433,7 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
         entry.en
       );
       additions.push({
-        id: `custom-${seed}-${index}`,
+        id: `custom-${customSeed}-${index}`,
         term: entry.term,
         en: resolvedDefinition,
         isCustom: true,
@@ -388,16 +445,58 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
       setCustomError('Those words are already in your custom cards.');
       return;
     }
+    let targetDeckId = importDeckId;
+    let targetDeckLabel = availableDecks.find((deck) => deck.id === importDeckId)?.name ?? 'selected deck';
+    if (importDeckMode === 'new') {
+      const trimmed = newDeckName.trim();
+      if (!trimmed) {
+        setCustomFeedback(null);
+        setCustomError('Enter a name for the new deck.');
+        return;
+      }
+      const createdDeck = await createDeck(trimmed);
+      await setSelectedDeck(createdDeck.id);
+      targetDeckId = createdDeck.id;
+      targetDeckLabel = createdDeck.name;
+    }
     const nextCustomWords = [...customWords, ...additions];
     setCustomWords(nextCustomWords);
     await saveCustomWords(nextCustomWords, practiceLanguage);
+    const importSeed = Date.now();
+    const importedCards: FlashCardRecord[] = [];
+    for (let index = 0; index < additions.length; index += 1) {
+      const word = additions[index];
+      const slug = sanitizeWordSlug(word.term);
+      if (!slug) continue;
+      importedCards.push({
+        id: `word-${targetDeckId}-${slug}`,
+        deckId: targetDeckId,
+        cardType: 'word',
+        front: word.term,
+        back: normalizeDefinitionToken(word.en) ?? word.term,
+        createdAt: importSeed + index,
+      });
+    }
+    await addCards(importedCards);
+    await refreshDeckTargets();
     setCustomInput('');
+    setNewDeckName('');
+    setImportDeckMode('existing');
     setCustomError(null);
     setShowCustomEditor(false);
     setCustomFeedback(
-      `Added ${additions.length} custom card${additions.length === 1 ? '' : 's'}.`
+      `Imported ${additions.length} word${additions.length === 1 ? '' : 's'} to ${targetDeckLabel}.`
     );
-  }, [customInput, customWords, practiceLanguage]);
+  }, [
+    availableDecks,
+    customInput,
+    customWords,
+    importDeckId,
+    importDeckMode,
+    newDeckName,
+    practiceLanguage,
+    refreshDeckTargets,
+  ]);
 
   const handleClearCustomCards = useCallback(async () => {
     await clearCustomWords(practiceLanguage);
@@ -411,10 +510,10 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
   const handleToggleCustomEditor = useCallback(() => {
     const nextOpenState = !showCustomEditor;
     setShowCustomEditor(nextOpenState);
-    setShowCustomTooltip(false);
     if (!nextOpenState) return;
     void (async () => {
       try {
+        await refreshDeckTargets();
         const clipboardText = await readClipboardText();
         const prefilledInput = stringifyParsedCustomInput(
           parseCustomWordInput(clipboardText)
@@ -427,7 +526,7 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
         // ignore clipboard failures
       }
     })();
-  }, [showCustomEditor]);
+  }, [refreshDeckTargets, showCustomEditor]);
 
   const recordSessionSkip = useCallback((wordId: string) => {
     setSkippedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
@@ -634,7 +733,6 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
   const toastBottomOffset = (insets.bottom || 0) + (state && !state.cleared && !stopModalVisible ? 86 : 16);
   const customEditorBottomOffset =
     Math.max(insets.bottom || 0, 10) + (state && !state.cleared && !stopModalVisible ? 90 : 18);
-  const customTooltipBottomOffset = customEditorBottomOffset + 56;
 
   const showNativeCopyToast = useCallback((message: string) => {
     if (Platform.OS === 'android') {
@@ -694,36 +792,8 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
     }
   }, [state?.cleared]);
 
-  const hudActionButtons = hasPresetWords ? null : (
-    <View style={styles.hudActionGroup}>
-      <Pressable
-        style={({ pressed }) => [
-          styles.hudActionButton,
-          styles.hudInfoButton,
-          pressed && styles.hudActionButtonPressed,
-        ]}
-        onPress={() => {
-          setShowCustomTooltip((prev) => !prev);
-        }}
-      >
-        <FontAwesome5 name="info-circle" size={13} color={theme.textPrimary} solid />
-      </Pressable>
-      <Pressable
-        style={({ pressed }) => [
-          styles.hudActionButton,
-          styles.hudAddButton,
-          pressed && styles.hudActionButtonPressed,
-        ]}
-        onPress={() => {
-          handleToggleCustomEditor();
-        }}
-      >
-        <FontAwesome5 name="plus" size={13} color={theme.textPrimary} solid />
-      </Pressable>
-    </View>
-  );
 
-  const customEditorOverlay = !hasPresetWords && showCustomEditor && (
+  const customEditorOverlay = showCustomEditor && (
     <View style={[styles.customEditorSheet, { bottom: customEditorBottomOffset }]}>
       <View style={styles.customEditorHeader}>
         <Text style={styles.customEditorTitle}>
@@ -740,7 +810,7 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
         </Pressable>
       </View>
       <Text style={styles.customEditorHint}>
-        Use spaces, commas, or new lines to separate words.
+        Paste words with optional definitions (ex: casa:house). Import while practicing.
       </Text>
       <TextInput
         style={styles.customInput}
@@ -767,7 +837,7 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
             void handleAddCustomWords();
           }}
         >
-          <Text style={styles.customSaveButtonLabel}>Create cards</Text>
+          <Text style={styles.customSaveButtonLabel}>Import collection</Text>
         </Pressable>
         {customWords.length > 0 && (
           <Pressable
@@ -783,15 +853,86 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
           </Pressable>
         )}
       </View>
-    </View>
-  );
-
-  const customTooltipOverlay = !hasPresetWords && showCustomTooltip && (
-    <View style={[styles.customTooltip, { bottom: customTooltipBottomOffset }]}>
-      <Text style={styles.customTooltipText}>
-        Add words separated by spaces. Optional definition format:
-        casa:house, casa=house, or casa - house.
-      </Text>
+      <View style={styles.deckTargetSection}>
+        <Text style={styles.deckTargetLabel}>Import target</Text>
+        <View style={styles.deckModeRow}>
+          <Pressable
+            style={[
+              styles.deckModeButton,
+              importDeckMode === 'existing' && styles.deckModeButtonActive,
+            ]}
+            onPress={() => setImportDeckMode('existing')}
+          >
+            <Text style={styles.deckModeLabel}>Existing deck</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.deckModeButton,
+              importDeckMode === 'new' && styles.deckModeButtonActive,
+            ]}
+            onPress={() => setImportDeckMode('new')}
+          >
+            <Text style={styles.deckModeLabel}>New deck</Text>
+          </Pressable>
+        </View>
+        {importDeckMode === 'existing' ? (
+          <View style={styles.deckChipsRow}>
+            {availableDecks.map((deck) => (
+              <Pressable
+                key={deck.id}
+                style={[
+                  styles.deckChip,
+                  importDeckId === deck.id && styles.deckChipActive,
+                ]}
+                onPress={() => setImportDeckId(deck.id)}
+              >
+                <Text style={styles.deckChipLabel}>{deck.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <TextInput
+            style={styles.newDeckInput}
+            value={newDeckName}
+            onChangeText={setNewDeckName}
+            placeholder="New deck name"
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="words"
+            autoCorrect={false}
+          />
+        )}
+      </View>
+      <Pressable
+        style={({ pressed }) => [styles.debugToggleInline, pressed && styles.debugTogglePressed]}
+        onPress={() => setShowSchedulerDebug((prev) => !prev)}
+      >
+        <Text style={styles.debugToggleLabel}>
+          {showSchedulerDebug ? 'Hide debug' : 'Show debug'}
+        </Text>
+      </Pressable>
+      {showSchedulerDebug && (
+        <View style={styles.debugPanel}>
+          <Text style={styles.debugTitle}>Scheduler</Text>
+          <Text style={styles.debugLine}>
+            Due selected: {spacedRepetitionDebug.stats.selectedDue} / available {spacedRepetitionDebug.stats.dueAvailable}
+          </Text>
+          <Text style={styles.debugLine}>
+            New selected: {spacedRepetitionDebug.stats.selectedNew} / available {spacedRepetitionDebug.stats.newAvailable}
+          </Text>
+          <Text style={styles.debugLine}>
+            Card dueAt: {spacedRepetitionDebug.currentCardSchedule?.dueAt ?? 'new'}
+          </Text>
+          <Text style={styles.debugLine}>
+            Interval days: {spacedRepetitionDebug.currentCardSchedule?.intervalDays ?? 0}
+          </Text>
+          <Text style={styles.debugLine}>
+            Ease: {spacedRepetitionDebug.currentCardSchedule?.ease?.toFixed(2) ?? '2.50'}
+          </Text>
+          <Text style={styles.debugLine}>
+            Last review: {spacedRepetitionDebug.lastReview?.grade ?? '-'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -873,40 +1014,6 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
           )}
         </ScrollView>
         {customEditorOverlay}
-        {customTooltipOverlay}
-        {!hasPresetWords && (
-          <View
-            style={[
-              styles.floatingButtons,
-              { bottom: Math.max(insets.bottom || 0, 10) + 16 },
-            ]}
-          >
-            <Pressable
-              style={({ pressed }) => [
-                styles.customIconButton,
-                styles.customInfoButton,
-                pressed && styles.customIconButtonPressed,
-              ]}
-              onPress={() => {
-                setShowCustomTooltip((prev) => !prev);
-              }}
-            >
-              <FontAwesome5 name="info-circle" size={16} color={theme.textPrimary} solid />
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.customIconButton,
-                styles.customAddButton,
-                pressed && styles.customIconButtonPressed,
-              ]}
-              onPress={() => {
-                handleToggleCustomEditor();
-              }}
-            >
-              <FontAwesome5 name="plus" size={18} color={theme.textPrimary} solid />
-            </Pressable>
-          </View>
-        )}
         {toastMessage && (
           <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
             <View style={styles.webToast}>
@@ -931,10 +1038,15 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
           skippedCount={state.skippedCount}
           guessedCount={state.guessedCount}
           remaining={remaining}
-          startedAt={state.startedAt}
-          frozen={state.cleared || stopModalVisible}
-          actions={hudActionButtons}
         />
+        {state.startedAt != null && (
+          <View style={styles.utilityRail}>
+            <View style={styles.timeChip}>
+              <FontAwesome5 name="clock" size={12} color={theme.info} solid />
+              <Text style={styles.timeChipText}>{formatElapsed(elapsedMs)}</Text>
+            </View>
+          </View>
+        )}
         <View style={styles.content}>
           <FlashCard
             word={currentWord}
@@ -954,43 +1066,11 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
             onChangeTypedAnswer={setTypedAnswer}
             onSubmitTypedAnswer={handleSwipeRight}
             disabled={state.cleared || stopModalVisible || showGestureDemo}
+            onOpenInfo={() => setShowGestureDemo(true)}
+            onOpenAdd={handleToggleCustomEditor}
           />
         </View>
         {customEditorOverlay}
-        {customTooltipOverlay}
-        <View style={[styles.debugPanelWrap, { top: (insets.top || 0) + 62 }]}>
-          <Pressable
-          style={({ pressed }) => [styles.debugToggle, pressed && styles.debugTogglePressed]}
-          onPress={() => setShowSchedulerDebug((prev) => !prev)}
-          >
-            <Text style={styles.debugToggleLabel}>
-              {showSchedulerDebug ? 'Hide debug' : 'Show debug'}
-            </Text>
-          </Pressable>
-          {showSchedulerDebug && (
-            <View style={styles.debugPanel}>
-              <Text style={styles.debugTitle}>Scheduler</Text>
-              <Text style={styles.debugLine}>
-              Due selected: {spacedRepetitionDebug.stats.selectedDue} / available {spacedRepetitionDebug.stats.dueAvailable}
-              </Text>
-              <Text style={styles.debugLine}>
-              New selected: {spacedRepetitionDebug.stats.selectedNew} / available {spacedRepetitionDebug.stats.newAvailable}
-              </Text>
-              <Text style={styles.debugLine}>
-              Card dueAt: {spacedRepetitionDebug.currentCardSchedule?.dueAt ?? 'new'}
-              </Text>
-              <Text style={styles.debugLine}>
-              Interval days: {spacedRepetitionDebug.currentCardSchedule?.intervalDays ?? 0}
-              </Text>
-              <Text style={styles.debugLine}>
-              Ease: {spacedRepetitionDebug.currentCardSchedule?.ease?.toFixed(2) ?? '2.50'}
-              </Text>
-              <Text style={styles.debugLine}>
-              Last review: {spacedRepetitionDebug.lastReview?.grade ?? '-'}
-              </Text>
-            </View>
-          )}
-        </View>
         <GestureDemoOverlay
         visible={showGestureDemo}
         onDismiss={() => setShowGestureDemo(false)}
@@ -1053,6 +1133,28 @@ const styles = StyleSheet.create({
     paddingVertical: theme.cardStagePaddingVertical,
     paddingHorizontal: 24,
   },
+  utilityRail: {
+    paddingHorizontal: 12,
+    marginTop: -2,
+    marginBottom: 2,
+    alignItems: 'flex-end',
+  },
+  timeChip: {
+    minHeight: 28,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  timeChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
   startContent: {
     paddingVertical: 24,
     paddingBottom: 132,
@@ -1099,14 +1201,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: theme.strokeSoft,
     ...theme.cardShadow,
   },
   customInfoButton: {
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: theme.surfaceStrong,
   },
   customAddButton: {
-    backgroundColor: theme.brand,
+    backgroundColor: 'rgba(156, 84, 213, 0.42)',
   },
   customIconButtonPressed: {
     opacity: 0.9,
@@ -1126,31 +1228,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   hudInfoButton: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: theme.surface,
+    borderColor: theme.strokeSoft,
   },
   hudAddButton: {
-    backgroundColor: 'rgba(106,92,255,0.45)',
-    borderColor: 'rgba(179,168,255,0.85)',
+    backgroundColor: 'rgba(156, 84, 213, 0.24)',
+    borderColor: 'rgba(201, 167, 255, 0.52)',
   },
   hudActionButtonPressed: {
     opacity: 0.92,
-  },
-  customTooltip: {
-    position: 'absolute',
-    right: 18,
-    maxWidth: 270,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-    backgroundColor: 'rgba(5,11,28,0.96)',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  customTooltipText: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: theme.textPrimary,
   },
   customEditorSheet: {
     position: 'absolute',
@@ -1158,8 +1244,8 @@ const styles = StyleSheet.create({
     right: 16,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    backgroundColor: 'rgba(9,14,34,0.97)',
+    borderColor: theme.stroke,
+    backgroundColor: theme.panelBg,
     padding: 14,
     gap: 10,
   },
@@ -1180,7 +1266,7 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: theme.strokeSoft,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1193,8 +1279,8 @@ const styles = StyleSheet.create({
     minHeight: 100,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    backgroundColor: 'rgba(3,7,20,0.8)',
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.panelBgMuted,
     color: theme.textPrimary,
     padding: 10,
     fontSize: 14,
@@ -1203,13 +1289,80 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  deckTargetSection: {
+    gap: 8,
+  },
+  deckTargetLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  deckModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  deckModeButton: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deckModeButtonActive: {
+    borderColor: theme.selectedBorder,
+    backgroundColor: theme.selectedBg,
+  },
+  deckModeLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  deckChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  deckChip: {
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deckChipActive: {
+    borderColor: theme.selectedBorder,
+    backgroundColor: theme.selectedBg,
+  },
+  deckChipLabel: {
+    fontSize: 12,
+    color: theme.textPrimary,
+    fontWeight: '600',
+  },
+  newDeckInput: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.panelBgMuted,
+    color: theme.textPrimary,
+    paddingHorizontal: 10,
+    fontSize: 14,
+  },
   customSaveButton: {
     flex: 1,
     minHeight: 42,
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#7C4DFF',
+    backgroundColor: theme.brand,
   },
   customSaveButtonPressed: {
     opacity: 0.92,
@@ -1226,8 +1379,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
   },
   customClearButtonPressed: {
     opacity: 0.92,
@@ -1239,13 +1392,13 @@ const styles = StyleSheet.create({
   },
   customErrorText: {
     fontSize: 13,
-    color: '#FF7B91',
+    color: theme.bad,
     textAlign: 'center',
     marginTop: 10,
   },
   customFeedbackText: {
     fontSize: 13,
-    color: '#7CFFB5',
+    color: theme.success,
     textAlign: 'center',
     marginTop: 10,
   },
@@ -1275,7 +1428,7 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     backgroundColor: theme.bad,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
+    borderColor: theme.strokeSoft,
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
@@ -1301,7 +1454,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     borderRadius: 14,
     paddingHorizontal: 14,
-    backgroundColor: 'rgba(8,12,26,0.92)',
+    backgroundColor: theme.panelBg,
     borderWidth: 1,
     borderColor: theme.stroke,
     flexDirection: 'row',
@@ -1314,20 +1467,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  debugPanelWrap: {
-    position: 'absolute',
-    right: 16,
-    zIndex: 25,
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  debugToggle: {
+  debugToggleInline: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    backgroundColor: 'rgba(5,11,28,0.82)',
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.panelBgMuted,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    alignSelf: 'flex-start',
   },
   debugTogglePressed: {
     opacity: 0.92,
@@ -1341,8 +1488,8 @@ const styles = StyleSheet.create({
     width: 250,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-    backgroundColor: 'rgba(5,11,28,0.92)',
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.panelBg,
     padding: 10,
     gap: 4,
   },

@@ -98,13 +98,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surfaceStrong,
     padding: 12,
     gap: 6,
   },
   deckCardSelected: {
-    borderColor: '#9AA7FF',
-    backgroundColor: 'rgba(122,93,255,0.2)',
+    borderColor: theme.selectedBorder,
+    backgroundColor: theme.selectedBg,
   },
   deckTopRow: {
     flexDirection: 'row',
@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   selectedBadge: {
-    color: '#CBD3FF',
+    color: theme.brand,
     fontSize: 12,
     fontWeight: '700',
   },

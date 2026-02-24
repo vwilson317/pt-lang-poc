@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surfaceStrong,
     padding: 12,
     gap: 6,
   },

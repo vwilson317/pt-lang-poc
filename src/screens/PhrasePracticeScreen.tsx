@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   backLink: {
-    color: '#9AA7FF',
+    color: theme.link,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surfaceStrong,
     color: theme.textPrimary,
     fontSize: 16,
     paddingHorizontal: 14,
@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surface,
   },
   secondaryLabel: {
     color: theme.textPrimary,

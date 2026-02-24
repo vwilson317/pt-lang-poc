@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 6,
-    backgroundColor: 'rgba(6,10,24,0.92)',
+    backgroundColor: theme.surfaceStrong,
     borderBottomWidth: 1,
     borderBottomColor: theme.stroke,
   },
@@ -167,12 +167,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
   },
   modeBtnActive: {
-    backgroundColor: 'rgba(122,93,255,0.45)',
-    borderColor: 'rgba(163,143,255,0.95)',
+    backgroundColor: theme.selectedBg,
+    borderColor: theme.selectedBorder,
   },
   modeLabel: {
     color: theme.textPrimary,
@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
   },
   deckLabel: {
     marginLeft: 'auto',
-    color: 'rgba(255,255,255,0.55)',
+    color: theme.textMuted,
     fontSize: 11,
   },
 });

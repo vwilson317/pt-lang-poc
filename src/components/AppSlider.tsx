@@ -1,6 +1,7 @@
 import React from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import Slider from '@react-native-community/slider';
+import { theme } from '../theme';
 
 type AppSliderProps = {
   value: number;
@@ -44,7 +45,7 @@ export function AppSlider({
             width: '100%',
             height: 48,
             margin: 0,
-            accentColor: thumbTintColor ?? '#6A5CFF',
+            accentColor: thumbTintColor ?? theme.brand,
             cursor: 'pointer',
           },
         })}

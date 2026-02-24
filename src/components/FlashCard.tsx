@@ -27,10 +27,10 @@ const springConfig = { damping: 18, stiffness: 120 };
 /** Time to show the "Don't know" reveal (word + translation) before advancing. */
 const REVEAL_DONT_KNOW_MS = 1800;
 const customCardSurfaceColors = [
-  'rgba(255,183,120,0.28)',
-  'rgba(255,96,163,0.16)',
+  'rgba(255,255,255,0.24)',
+  'rgba(156, 84, 213, 0.12)',
 ] as const;
-const customAudioButtonColors = ['#FF8E53', '#FF5D9B'] as const;
+const customAudioButtonColors = ['#462964', '#5EE2F0'] as const;
 const LONG_WORD_WRAP_CHUNK = 12;
 
 function addSoftBreaksToLongWord(value: string): string {
@@ -90,6 +90,8 @@ type FlashCardProps = {
   onChangeTypedAnswer?: (value: string) => void;
   onSubmitTypedAnswer?: () => void;
   disabled?: boolean;
+  onOpenInfo?: () => void;
+  onOpenAdd?: () => void;
 };
 
 export function FlashCard({
@@ -110,6 +112,8 @@ export function FlashCard({
   onChangeTypedAnswer,
   onSubmitTypedAnswer,
   disabled = false,
+  onOpenInfo,
+  onOpenAdd,
 }: FlashCardProps) {
   const { width: viewportWidth } = useWindowDimensions();
   const translateX = useSharedValue(0);
@@ -174,7 +178,9 @@ export function FlashCard({
     );
   }
 
-  const showChoices = uiState === 'CHOICES' || uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
+  const showChoices =
+    (uiState === 'CHOICES' || uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG') &&
+    choiceOptions.length > 0;
   const isFeedback = uiState === 'FEEDBACK_CORRECT' || uiState === 'FEEDBACK_WRONG';
   const isCustomWord = Boolean(word.isCustom);
   const metadataLine = wordMetadataLine(word);
@@ -242,7 +248,7 @@ export function FlashCard({
                   value={typedAnswer ?? ''}
                   onChangeText={onChangeTypedAnswer}
                   placeholder="Type English if you know it... or guess?"
-                  placeholderTextColor={theme.textMuted}
+                  placeholderTextColor="#FFFFFF"
                   autoCorrect={false}
                   autoCapitalize="none"
                   returnKeyType="done"
@@ -273,8 +279,22 @@ export function FlashCard({
                   </View>
                 </Pressable>
               )}
+              {(onOpenInfo || onOpenAdd) && uiState === 'PROMPT' && (
+                <View style={styles.cardUtilityButtonsRow}>
+                  {onOpenInfo && (
+                    <Pressable style={styles.cardUtilityButton} onPress={onOpenInfo} disabled={disabled}>
+                      <FontAwesome5 name="info-circle" size={13} color={theme.textPrimary} solid />
+                    </Pressable>
+                  )}
+                  {onOpenAdd && (
+                    <Pressable style={[styles.cardUtilityButton, styles.cardUtilityButtonAdd]} onPress={onOpenAdd} disabled={disabled}>
+                      <FontAwesome5 name="plus" size={13} color={theme.textPrimary} solid />
+                    </Pressable>
+                  )}
+                </View>
+              )}
 
-            {uiState === 'REVEAL_DONT_KNOW' && (
+              {uiState === 'REVEAL_DONT_KNOW' && (
               <View style={styles.reveal}>
                 {word.en != null && (
                   <Text style={styles.en}>{word.en}</Text>
@@ -284,7 +304,12 @@ export function FlashCard({
                 )}
                 <Text style={styles.autoAdvance}>Next in a moment…</Text>
               </View>
-            )}
+              )}
+              {uiState === 'FEEDBACK_CORRECT' && !showChoices && (
+                <View style={styles.reveal}>
+                  <Text style={styles.correctText}>Great!</Text>
+                </View>
+              )}
 
               {showChoices && (
                 <View style={styles.choices}>
@@ -330,7 +355,7 @@ const styles = StyleSheet.create({
     ...theme.cardShadow,
   },
   customCard: {
-    borderColor: '#FFB26B',
+    borderColor: theme.selectedBorder,
     borderWidth: 2,
   },
   cardGradient: {
@@ -352,9 +377,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: theme.selectedBg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: theme.selectedBorder,
   },
   speedBadgeText: {
     fontSize: 13,
@@ -366,15 +391,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     marginBottom: 10,
-    backgroundColor: 'rgba(255,189,105,0.2)',
+    backgroundColor: theme.accentBg,
     borderWidth: 1,
-    borderColor: 'rgba(255,214,149,0.85)',
+    borderColor: theme.accent400,
   },
   customBadgeText: {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.6,
-    color: '#FFE1B2',
+    color: theme.support700,
     textTransform: 'uppercase',
   },
   placeholder: {
@@ -399,7 +424,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.8,
-    color: 'rgba(255,255,255,0.6)',
+    color: '#FFFFFF',
     marginBottom: 12,
     textAlign: 'center',
     textTransform: 'uppercase',
@@ -407,14 +432,16 @@ const styles = StyleSheet.create({
   answerInput: {
     width: '100%',
     minHeight: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: theme.stroke,
-    backgroundColor: 'rgba(4,8,24,0.55)',
-    color: theme.textPrimary,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderBottomWidth: 2,
+    borderBottomColor: 'rgba(70, 41, 100, 0.36)',
+    backgroundColor: 'transparent',
+    color: '#FFFFFF',
     fontSize: 15,
-    paddingHorizontal: 14,
-    marginTop: 4,
+    paddingHorizontal: 2,
+    paddingBottom: 8,
+    marginTop: 6,
   },
   audioButton: {
     minHeight: theme.ctaMinHeight,
@@ -451,13 +478,18 @@ const styles = StyleSheet.create({
   },
   pronHint: {
     fontSize: 16,
-    color: theme.textMuted,
+    color: '#FFFFFF',
     fontStyle: 'italic',
     marginBottom: 12,
   },
   autoAdvance: {
     fontSize: theme.hudLabelSize,
-    color: theme.textMuted,
+    color: '#FFFFFF',
+  },
+  correctText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme.good,
   },
   choices: {
     width: '100%',
@@ -485,5 +517,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: theme.textPrimary,
     textAlign: 'center',
+  },
+  cardUtilityButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignSelf: 'flex-end',
+    marginTop: 8,
+  },
+  cardUtilityButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  cardUtilityButtonAdd: {
+    backgroundColor: 'rgba(156, 84, 213, 0.26)',
+    borderColor: 'rgba(201, 167, 255, 0.54)',
   },
 });

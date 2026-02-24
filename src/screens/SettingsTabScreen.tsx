@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surfaceStrong,
     padding: 12,
     gap: 8,
   },
@@ -84,11 +84,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surface,
   },
   smallToggleActive: {
-    borderColor: '#9AA7FF',
-    backgroundColor: 'rgba(122,93,255,0.22)',
+    borderColor: theme.selectedBorder,
+    backgroundColor: theme.selectedBg,
   },
   smallToggleLabel: {
     color: theme.textPrimary,

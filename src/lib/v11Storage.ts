@@ -81,6 +81,30 @@ export async function setSelectedDeck(deckId: string): Promise<void> {
   await writeJson(KEY_DECKS, updated);
 }
 
+export async function createDeck(name: string): Promise<Deck> {
+  await ensureV11Initialized();
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error('Deck name is required.');
+  }
+  const decks = await getDecks();
+  const duplicate = decks.find((deck) => deck.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase());
+  if (duplicate) {
+    return duplicate;
+  }
+  const ts = nowMs();
+  const id = `deck-${ts}-${Math.random().toString(36).slice(2, 8)}`;
+  const nextDeck: Deck = {
+    id,
+    name: trimmed,
+    isSelected: false,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+  await writeJson(KEY_DECKS, [...decks, nextDeck]);
+  return nextDeck;
+}
+
 export async function getCards(): Promise<FlashCardRecord[]> {
   await ensureV11Initialized();
   return readJson<FlashCardRecord[]>(KEY_CARDS, []);

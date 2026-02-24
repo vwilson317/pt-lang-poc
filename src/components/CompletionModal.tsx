@@ -79,7 +79,7 @@ export function CompletionModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: theme.overlayStrong,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   },
   best: {
     fontSize: 14,
-    color: theme.info,
+    color: theme.brand,
     marginBottom: 20,
   },
   buttons: {
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.brand,
   },
   exportButton: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surface,
     borderWidth: 1,
     borderColor: theme.stroke,
   },

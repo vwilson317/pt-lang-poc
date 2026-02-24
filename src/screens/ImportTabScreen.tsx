@@ -590,12 +590,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   warning: {
-    color: '#FFD166',
+    color: theme.warning,
     fontSize: 13,
     textAlign: 'center',
   },
   errorText: {
-    color: '#FF9AAE',
+    color: theme.bad,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
@@ -618,7 +618,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surface,
     overflow: 'hidden',
   },
   progressFill: {
@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: theme.stroke,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: theme.surface,
   },
   secondaryLabel: {
     color: theme.textPrimary,

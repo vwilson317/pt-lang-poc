@@ -82,7 +82,7 @@ export function GestureDemoOverlay({ visible, onDismiss }: GestureDemoOverlayPro
 const styles = StyleSheet.create({
   scrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.92)',
+    backgroundColor: theme.overlayStrong,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.9)',
+    color: theme.textOnDark,
     letterSpacing: 0.3,
   },
 });

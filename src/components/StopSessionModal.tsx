@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.36)',
+    backgroundColor: theme.overlaySoft,
   },
   box: {
     backgroundColor: theme.surfaceStrong,
