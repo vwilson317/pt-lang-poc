@@ -241,7 +241,7 @@ export function FlashCard({
                 <TextInput
                   value={typedAnswer ?? ''}
                   onChangeText={onChangeTypedAnswer}
-                  placeholder="Type English (optional)"
+                  placeholder="Type English if you know it... or guess?"
                   placeholderTextColor={theme.textMuted}
                   autoCorrect={false}
                   autoCapitalize="none"
