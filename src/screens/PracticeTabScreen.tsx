@@ -12,7 +12,7 @@ import type { Word } from '../types/word';
 type Mode = 'words' | 'sentences' | 'phrases';
 
 export function PracticeTabScreen() {
-  const params = useLocalSearchParams<{ mode?: string; clipId?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; clipId?: string; restartSession?: string }>();
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('words');
   const [deckName, setDeckName] = useState('...');
@@ -29,6 +29,12 @@ export function PracticeTabScreen() {
       setMode(params.mode);
     }
   }, [params.mode]);
+
+  useEffect(() => {
+    if (params.restartSession) {
+      setMode('words');
+    }
+  }, [params.restartSession]);
 
   const sourceClipId = useMemo(
     () => (typeof params.clipId === 'string' ? params.clipId : undefined),
@@ -87,7 +93,7 @@ export function PracticeTabScreen() {
           </Pressable>
           <Text style={styles.deckLabel}>Adding to: {deckName}</Text>
         </View>
-        <FlashSessionScreen />
+        <FlashSessionScreen restartSessionKey={typeof params.restartSession === 'string' ? params.restartSession : undefined} />
       </View>
     );
   }

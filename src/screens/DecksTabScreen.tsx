@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ensureV11Initialized, getDeckCounts, getDecks, getSelectedDeckId, setSelectedDeck } from '../lib/v11Storage';
+import { getHasActivePracticeSession } from '../lib/storage';
 import type { Deck, DeckCounts } from '../types/v11';
 import { theme } from '../theme';
 
 type DeckWithCounts = Deck & { counts: DeckCounts };
 
 export function DecksTabScreen() {
+  const router = useRouter();
   const [decks, setDecks] = useState<DeckWithCounts[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasActiveSession, setHasActiveSession] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,8 +30,36 @@ export function DecksTabScreen() {
       })
     );
     setDecks(withCounts);
+    const activeSession = await getHasActivePracticeSession();
+    setHasActiveSession(activeSession);
     setLoading(false);
   }, []);
+
+  const handleSwitchDeck = useCallback((deck: DeckWithCounts) => {
+    const confirmAndSwitch = () => {
+      void setSelectedDeck(deck.id).then(() => {
+        void load();
+        router.replace({
+          pathname: '/(tabs)/practice',
+          params: { mode: 'words', restartSession: String(Date.now()) },
+        });
+      });
+    };
+
+    if (!hasActiveSession) {
+      confirmAndSwitch();
+      return;
+    }
+
+    Alert.alert(
+      'Switch deck?',
+      'This will interrupt your current session.',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes', onPress: confirmAndSwitch },
+      ]
+    );
+  }, [hasActiveSession, load, router]);
 
   useEffect(() => {
     void load();
@@ -56,7 +88,8 @@ export function DecksTabScreen() {
           key={deck.id}
           style={[styles.deckCard, deck.isSelected && styles.deckCardSelected]}
           onPress={() => {
-            void setSelectedDeck(deck.id).then(() => load());
+            if (deck.isSelected) return;
+            handleSwitchDeck(deck);
           }}
         >
           <View style={styles.deckTopRow}>

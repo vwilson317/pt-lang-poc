@@ -49,6 +49,7 @@ import {
   cycleAudioPlaybackRate,
   getHasSeenGestureDemo,
   setHasSeenGestureDemo,
+  setHasActivePracticeSession,
 } from '../lib/storage';
 import { playWordAudio, stopWordAudio } from '../lib/audio';
 import { theme } from '../theme';
@@ -245,9 +246,10 @@ async function readClipboardText(): Promise<string> {
 
 type FlashSessionScreenProps = {
   presetWords?: Word[];
+  restartSessionKey?: string;
 };
 
-export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps) {
+export function FlashSessionScreen({ presetWords = [], restartSessionKey }: FlashSessionScreenProps) {
   const insets = useSafeAreaInsets();
   const hasPresetWords = presetWords.length > 0;
   const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
@@ -296,6 +298,7 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
   const sessionInitRanRef = useRef(false);
   const hasHydratedLanguageRef = useRef(false);
   const presetSessionStartedRef = useRef(false);
+  const lastRestartSessionKeyRef = useRef<string | undefined>(undefined);
 
   useFocusEffect(
     useCallback(() => {
@@ -398,6 +401,17 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
     if (!state?.startedAt) setElapsedMs(0);
   }, [state?.startedAt]);
 
+  useEffect(() => {
+    const isActiveSession = Boolean(state && !state.cleared);
+    void setHasActivePracticeSession(isActiveSession);
+  }, [state]);
+
+  useEffect(() => {
+    return () => {
+      void setHasActivePracticeSession(false);
+    };
+  }, []);
+
   const refreshDeckTargets = useCallback(async () => {
     const [decks, selectedDeckId] = await Promise.all([getDecks(), getSelectedDeckId()]);
     setAvailableDecks(decks);
@@ -410,6 +424,32 @@ export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps
   useEffect(() => {
     void refreshDeckTargets();
   }, [refreshDeckTargets]);
+
+  useEffect(() => {
+    if (hasPresetWords || !customWordsLoaded || !restartSessionKey) return;
+    if (lastRestartSessionKeyRef.current === restartSessionKey) return;
+    lastRestartSessionKeyRef.current = restartSessionKey;
+    setModalDismissed(false);
+    setStopModalVisible(false);
+    setSkippedCountsById({});
+    setIncorrectCountsById({});
+    lastClearedRef.current = false;
+    lastRecordedCorrectIdRef.current = null;
+    lastRecordedIncorrectIdRef.current = null;
+    startSession({
+      cardCount: Math.round(cardCount),
+      customWords,
+      language: practiceLanguage,
+    });
+  }, [
+    cardCount,
+    customWords,
+    customWordsLoaded,
+    hasPresetWords,
+    practiceLanguage,
+    restartSessionKey,
+    startSession,
+  ]);
 
   const handleAddCustomWords = useCallback(async () => {
     const parsedEntries = parseCustomWordInput(customInput);

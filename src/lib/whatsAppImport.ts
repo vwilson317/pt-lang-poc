@@ -8,6 +8,7 @@ export type WhatsAppMessage = {
 
 export type WhatsAppImportResult = {
   transcript: string;
+  transcriptTranslated: string;
   segments: ClipSegment[];
   warning?: string;
 };
@@ -168,6 +169,7 @@ export function buildWhatsAppImport(
 
   return {
     transcript: deduped.join('\n'),
+    transcriptTranslated: segments.map((segment) => segment.textTranslated).join('\n'),
     segments,
     warning: warningBits.length ? warningBits.join(' ') : undefined,
   };

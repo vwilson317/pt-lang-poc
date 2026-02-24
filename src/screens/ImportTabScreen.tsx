@@ -374,7 +374,7 @@ export function ImportTabScreen() {
         targetLanguage: 'en' as const,
         importCardType: 'word' as const,
         transcriptOriginal: parsed.transcript,
-        transcriptTranslated: parsed.transcript,
+        transcriptTranslated: parsed.transcriptTranslated,
         segments: parsed.segments,
         createdAt: Date.now(),
       };

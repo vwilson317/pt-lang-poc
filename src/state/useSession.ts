@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionState } from '../types/session';
 import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
@@ -252,6 +252,7 @@ export function useSession() {
   });
   const lastReviewRef = useRef<{ wordId: string; grade: ReviewGrade; schedule: CardSchedule } | null>(null);
   const startRequestIdRef = useRef(0);
+  const delayedSpellingSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const remaining = state ? getRemaining(state) : 0;
   const currentWord = state?.currentCardId
@@ -277,6 +278,10 @@ export function useSession() {
   }, []);
 
   const startFromOptions = useCallback(async (input: StartSessionInput) => {
+    if (delayedSpellingSuccessTimerRef.current) {
+      clearTimeout(delayedSpellingSuccessTimerRef.current);
+      delayedSpellingSuccessTimerRef.current = null;
+    }
     const requestId = startRequestIdRef.current + 1;
     startRequestIdRef.current = requestId;
     const options = normalizeStartSessionInput(input);
@@ -359,33 +364,20 @@ export function useSession() {
   }, []);
 
   const swipeRight = useCallback((typedAnswer?: string) => {
-    setState((prev) => {
-      if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
-      const word = deckByIdRef.current.get(prev.currentCardId);
-      const correctEn = normalizeMaybeText(word?.en);
-      if (!correctEn) {
-        const id = prev.currentCardId;
-        const newQueue = prev.queue.filter((x) => x !== id);
-        const newCorrectSet = new Set(prev.correctSet);
-        newCorrectSet.add(id);
-        markWordKnown(id);
-        const cleared = newCorrectSet.size === prev.deckCount;
-        if (cleared) clearedAtMs.current = Date.now();
-        return {
-          ...prev,
-          queue: newQueue,
-          correctSet: newCorrectSet,
-          rightCount: prev.rightCount + 1,
-          uiState: 'FEEDBACK_CORRECT',
-          selectedChoiceIndex: undefined,
-          correctChoiceIndex: undefined,
-          choiceOptions: undefined,
-          cleared,
-        };
+    if (!state || state.uiState !== 'PROMPT' || !state.currentCardId) return;
+    const currentCardId = state.currentCardId;
+    const word = deckByIdRef.current.get(currentCardId);
+    const correctEn = normalizeMaybeText(word?.en);
+    const normalizedTypedAnswer = normalizeMaybeText(typedAnswer);
+
+    if (correctEn && normalizedTypedAnswer && isTypedAnswerCorrect(normalizedTypedAnswer, correctEn)) {
+      if (delayedSpellingSuccessTimerRef.current) {
+        clearTimeout(delayedSpellingSuccessTimerRef.current);
       }
-      const normalizedTypedAnswer = normalizeMaybeText(typedAnswer);
-      if (normalizedTypedAnswer) {
-        if (isTypedAnswerCorrect(normalizedTypedAnswer, correctEn)) {
+      delayedSpellingSuccessTimerRef.current = setTimeout(() => {
+        delayedSpellingSuccessTimerRef.current = null;
+        setState((prev) => {
+          if (!prev || prev.uiState !== 'PROMPT' || prev.currentCardId !== currentCardId) return prev;
           const id = prev.currentCardId;
           const newQueue = prev.queue.filter((x) => x !== id);
           const newCorrectSet = new Set(prev.correctSet);
@@ -406,17 +398,44 @@ export function useSession() {
             currentCardWasGuess: false,
             cleared,
           };
-        }
+        });
+      }, 500);
+      return;
+    }
+
+    setState((prev) => {
+      if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
+      const nextWord = deckByIdRef.current.get(prev.currentCardId);
+      const nextCorrectEn = normalizeMaybeText(nextWord?.en);
+      if (!nextCorrectEn) {
+        const id = prev.currentCardId;
+        const newQueue = prev.queue.filter((x) => x !== id);
+        const newCorrectSet = new Set(prev.correctSet);
+        newCorrectSet.add(id);
+        markWordKnown(id);
+        const cleared = newCorrectSet.size === prev.deckCount;
+        if (cleared) clearedAtMs.current = Date.now();
+        return {
+          ...prev,
+          queue: newQueue,
+          correctSet: newCorrectSet,
+          rightCount: prev.rightCount + 1,
+          uiState: 'FEEDBACK_CORRECT',
+          selectedChoiceIndex: undefined,
+          correctChoiceIndex: undefined,
+          choiceOptions: undefined,
+          cleared,
+        };
       }
       const distractors = getDistractors(
-        correctEn,
+        nextCorrectEn,
         2,
         prev.currentCardId,
         deckRef.current,
-        word
+        nextWord
       );
-      const options = shuffleArray([correctEn, ...distractors]);
-      const correctChoiceIndex = options.indexOf(correctEn);
+      const options = shuffleArray([nextCorrectEn, ...distractors]);
+      const correctChoiceIndex = options.indexOf(nextCorrectEn);
       return {
         ...prev,
         uiState: 'CHOICES',
@@ -425,7 +444,7 @@ export function useSession() {
         currentCardWasGuess: false,
       };
     });
-  }, [markWordKnown, persistReview]);
+  }, [markWordKnown, persistReview, state]);
 
   const chooseOption = useCallback((choiceIndex: number) => {
     setState((prev) => {
@@ -489,6 +508,10 @@ export function useSession() {
   }, [startFromOptions]);
 
   const stopSession = useCallback(() => {
+    if (delayedSpellingSuccessTimerRef.current) {
+      clearTimeout(delayedSpellingSuccessTimerRef.current);
+      delayedSpellingSuccessTimerRef.current = null;
+    }
     clearedAtMs.current = null;
     setState(null);
   }, []);
@@ -500,6 +523,15 @@ export function useSession() {
 
   /** Legacy: choice options are in state.choiceOptions; this avoids "getChoiceOptions is not defined" from cached bundles. */
   const getChoiceOptions = useCallback((_wordId: string) => state?.choiceOptions ?? [], [state?.choiceOptions]);
+
+  useEffect(() => {
+    return () => {
+      if (delayedSpellingSuccessTimerRef.current) {
+        clearTimeout(delayedSpellingSuccessTimerRef.current);
+        delayedSpellingSuccessTimerRef.current = null;
+      }
+    };
+  }, []);
 
   return {
     state,

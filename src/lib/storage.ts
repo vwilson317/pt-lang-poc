@@ -12,6 +12,7 @@ const KEY_PRACTICE_LANGUAGE = 'practiceLanguage';
 const KEY_CUSTOM_WORDS_LEGACY = 'customWords';
 const KEY_SPACED_REPETITION_PREFIX = 'spacedRepetition:v1:';
 const KEY_KNOWN_WORDS_PREFIX = 'knownWords:v1:';
+const KEY_ACTIVE_PRACTICE_SESSION = 'activePracticeSession';
 
 export async function getBestClearMs(): Promise<number | null> {
   const raw = await AsyncStorage.getItem(KEY_BEST_CLEAR_MS);
@@ -76,6 +77,15 @@ export async function getPracticeLanguage(): Promise<PracticeLanguage> {
 
 export async function setPracticeLanguage(language: PracticeLanguage): Promise<void> {
   await AsyncStorage.setItem(KEY_PRACTICE_LANGUAGE, language);
+}
+
+export async function getHasActivePracticeSession(): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(KEY_ACTIVE_PRACTICE_SESSION);
+  return raw === 'true';
+}
+
+export async function setHasActivePracticeSession(active: boolean): Promise<void> {
+  await AsyncStorage.setItem(KEY_ACTIVE_PRACTICE_SESSION, active ? 'true' : 'false');
 }
 
 export async function getCustomWords(language: PracticeLanguage = 'pt'): Promise<Word[]> {
