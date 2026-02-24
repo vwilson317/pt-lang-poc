@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ensureV11Initialized, getDeckCounts, getDecks, getSelectedDeckId, setSelectedDeck } from '../lib/v11Storage';
 import { getHasActivePracticeSession } from '../lib/storage';
 import { trackEvent } from '../lib/analytics';
@@ -37,7 +37,6 @@ export function DecksTabScreen() {
   }, []);
 
   const handleSwitchDeck = useCallback((deck: DeckWithCounts) => {
-    if (deck.counts.total === 0) return;
     const confirmAndSwitch = () => {
       void setSelectedDeck(deck.id).then(() => {
         void trackEvent('deck_selected', {
@@ -61,14 +60,21 @@ export function DecksTabScreen() {
       return;
     }
 
-    Alert.alert(
-      'Switch deck?',
-      'This will interrupt your current session.',
-      [
-        { text: 'No', style: 'cancel' },
-        { text: 'Yes', onPress: confirmAndSwitch },
-      ]
-    );
+    if (Platform.OS === 'web') {
+      const shouldSwitch =
+        typeof window === 'undefined'
+          ? true
+          : window.confirm('Switch deck? This will interrupt your current session.');
+      if (shouldSwitch) {
+        confirmAndSwitch();
+      }
+      return;
+    }
+
+    Alert.alert('Switch deck?', 'This will interrupt your current session.', [
+      { text: 'No', style: 'cancel' },
+      { text: 'Yes', onPress: confirmAndSwitch },
+    ]);
   }, [hasActiveSession, load, router]);
 
   useEffect(() => {
@@ -96,15 +102,12 @@ export function DecksTabScreen() {
       {decks.map((deck) => (
         (() => {
           const isEmpty = deck.counts.total === 0;
-          const isDisabled = !deck.isSelected && isEmpty;
           return (
             <Pressable
               key={deck.id}
-              disabled={isDisabled}
               style={[
                 styles.deckCard,
                 deck.isSelected && styles.deckCardSelected,
-                isDisabled && styles.deckCardDisabled,
               ]}
               onPress={() => {
                 if (deck.isSelected) return;
@@ -112,9 +115,9 @@ export function DecksTabScreen() {
               }}
             >
               <View style={styles.deckTopRow}>
-                <Text style={[styles.deckName, isDisabled && styles.deckNameDisabled]}>{deck.name}</Text>
+                <Text style={styles.deckName}>{deck.name}</Text>
                 {deck.isSelected && <Text style={styles.selectedBadge}>Selected</Text>}
-                {isDisabled && <Text style={styles.emptyBadge}>Empty</Text>}
+                {isEmpty && !deck.isSelected && <Text style={styles.emptyBadge}>Empty</Text>}
               </View>
               <Text style={styles.deckCounts}>
                 Total: {deck.counts.total} · Words: {deck.counts.word} · Sentences: {deck.counts.sentence} · Phrases: {deck.counts.phrase}
