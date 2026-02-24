@@ -1,5 +1,6 @@
 import type { ClipSegment } from '../types/v11';
 import { translatePtBrMessageWithPhraseEscalation } from './ptBrTranslation';
+import { createTranslationLookupService, type TranslationLookupDb } from './translationLookup';
 
 export type WhatsAppMessage = {
   sender: string;
@@ -11,6 +12,10 @@ export type WhatsAppImportResult = {
   transcriptTranslated: string;
   segments: ClipSegment[];
   warning?: string;
+};
+
+export type WhatsAppImportOptions = {
+  translationDb?: TranslationLookupDb;
 };
 
 export type WhatsAppSenderPhone = {
@@ -128,9 +133,10 @@ export function listWhatsAppSenderPhones(rawText: string): WhatsAppSenderPhone[]
   );
 }
 
-export function buildWhatsAppImport(
-  rawText: string
-): WhatsAppImportResult {
+export async function buildWhatsAppImport(
+  rawText: string,
+  options: WhatsAppImportOptions = {}
+): Promise<WhatsAppImportResult> {
   const messages = parseWhatsAppMessages(rawText);
   const messageCandidates = messages.map((message) => normalizeMessageText(message.text));
   const qualityFiltered = messageCandidates.filter((message) => {
@@ -150,8 +156,40 @@ export function buildWhatsAppImport(
     ).values()
   );
 
+  const lookup = createTranslationLookupService(options.translationDb);
+  const translations = await Promise.all(
+    deduped.map(async (message) => {
+      const fallback = translatePtBrMessageWithPhraseEscalation(message);
+      const tokens = await Promise.all(
+        fallback.tokens.map(async (token) => {
+          const hit = await lookup.lookup({
+            sourceLanguage: 'pt',
+            targetLanguage: 'en',
+            token: token.text,
+            fallbackTranslation: token.translation,
+          });
+          return {
+            text: token.text,
+            translation: hit.translation,
+          };
+        })
+      );
+      const translatedParts: string[] = [];
+      for (const token of tokens) {
+        const normalizedTranslation = token.translation?.trim();
+        if (!normalizedTranslation) continue;
+        if (translatedParts[translatedParts.length - 1] === normalizedTranslation) continue;
+        translatedParts.push(normalizedTranslation);
+      }
+      return {
+        textTranslated: translatedParts.join(' ') || fallback.textTranslated,
+        tokens,
+      };
+    })
+  );
+
   const segments: ClipSegment[] = deduped.map((message, index) => {
-    const translated = translatePtBrMessageWithPhraseEscalation(message);
+    const translated = translations[index];
     return {
       id: `wa-seg-${index + 1}`,
       startMs: index * 1000,

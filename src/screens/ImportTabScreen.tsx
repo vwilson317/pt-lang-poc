@@ -11,6 +11,7 @@ import { makeId } from '../lib/id';
 import {
   buildWhatsAppImport,
 } from '../lib/whatsAppImport';
+import { ensureLexiconDbInitialized, getTranslationLookupDb } from '../lib/lexiconDb';
 import { theme } from '../theme';
 
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
@@ -355,9 +356,11 @@ export function ImportTabScreen() {
       if (!whatsAppTextCache) {
         setWhatsAppTextCache(rawText);
       }
+      await ensureLexiconDbInitialized();
+      const translationDb = getTranslationLookupDb();
       setProgress(35);
       setProgressLabel('Parsing thread...');
-      const parsed = buildWhatsAppImport(rawText);
+      const parsed = await buildWhatsAppImport(rawText, { translationDb });
       if (parsed.segments.length === 0) {
         setState('FAILED');
         setErrorMessage(parsed.warning ?? 'No usable messages found in this thread export.');
