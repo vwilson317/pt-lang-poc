@@ -215,8 +215,13 @@ async function readClipboardText(): Promise<string> {
   }
 }
 
-export function FlashSessionScreen() {
+type FlashSessionScreenProps = {
+  presetWords?: Word[];
+};
+
+export function FlashSessionScreen({ presetWords = [] }: FlashSessionScreenProps) {
   const insets = useSafeAreaInsets();
+  const hasPresetWords = presetWords.length > 0;
   const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
   const {
     state,
@@ -250,6 +255,7 @@ export function FlashSessionScreen() {
   const [showGestureDemo, setShowGestureDemo] = React.useState(false);
   const [practiceLanguage, setPracticeLanguage] = React.useState<PracticeLanguage>('pt');
   const [showSchedulerDebug, setShowSchedulerDebug] = React.useState(false);
+  const [typedAnswer, setTypedAnswer] = React.useState('');
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRecordedCorrectIdRef = useRef<string | null>(null);
@@ -257,6 +263,7 @@ export function FlashSessionScreen() {
   const gestureDemoShownRef = useRef(false);
   const sessionInitRanRef = useRef(false);
   const hasHydratedLanguageRef = useRef(false);
+  const presetSessionStartedRef = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -302,6 +309,20 @@ export function FlashSessionScreen() {
       };
     }, [cardCount, practiceLanguage, startSession])
   );
+
+  useEffect(() => {
+    if (!hasPresetWords) {
+      presetSessionStartedRef.current = false;
+      return;
+    }
+    if (state || presetSessionStartedRef.current) return;
+    presetSessionStartedRef.current = true;
+    startSession({
+      cardCount: 0,
+      customWords: presetWords,
+      language: presetWords[0]?.language ?? practiceLanguage,
+    });
+  }, [hasPresetWords, practiceLanguage, presetWords, startSession, state]);
 
   useEffect(() => {
     if (customWords.length === 0 && cardCount < MIN_CARDS) {
@@ -439,8 +460,13 @@ export function FlashSessionScreen() {
       recordWordDontKnow(state.currentCardId);
       recordSessionSkip(state.currentCardId);
     }
+    setTypedAnswer('');
     swipeLeft();
   }, [recordSessionSkip, swipeLeft, state?.currentCardId]);
+
+  const handleSwipeRight = useCallback(() => {
+    swipeRight(typedAnswer);
+  }, [swipeRight, typedAnswer]);
 
   const handleGlobalSwipeUp = useCallback(() => {
     if (
@@ -501,6 +527,10 @@ export function FlashSessionScreen() {
       lastRecordedIncorrectIdRef.current = null;
     }
   }, [state?.uiState, state?.currentCardId]);
+
+  useEffect(() => {
+    setTypedAnswer('');
+  }, [state?.currentCardId, state?.uiState]);
 
   // Auto-play by default on every prompt card using persisted playback rate.
   useEffect(() => {
@@ -664,7 +694,7 @@ export function FlashSessionScreen() {
     }
   }, [state?.cleared]);
 
-  const hudActionButtons = (
+  const hudActionButtons = hasPresetWords ? null : (
     <View style={styles.hudActionGroup}>
       <Pressable
         style={({ pressed }) => [
@@ -693,7 +723,7 @@ export function FlashSessionScreen() {
     </View>
   );
 
-  const customEditorOverlay = showCustomEditor && (
+  const customEditorOverlay = !hasPresetWords && showCustomEditor && (
     <View style={[styles.customEditorSheet, { bottom: customEditorBottomOffset }]}>
       <View style={styles.customEditorHeader}>
         <Text style={styles.customEditorTitle}>
@@ -756,7 +786,7 @@ export function FlashSessionScreen() {
     </View>
   );
 
-  const customTooltipOverlay = showCustomTooltip && (
+  const customTooltipOverlay = !hasPresetWords && showCustomTooltip && (
     <View style={[styles.customTooltip, { bottom: customTooltipBottomOffset }]}>
       <Text style={styles.customTooltipText}>
         Add words separated by spaces. Optional definition format:
@@ -766,6 +796,20 @@ export function FlashSessionScreen() {
   );
 
   // Start screen: choose number of cards then begin
+  if (!state && hasPresetWords) {
+    return (
+      <ImageBackground
+        source={bgImage}
+        style={[styles.screen, { paddingTop: (insets.top || 0) + theme.safeAreaTopOffset }]}
+        resizeMode="cover"
+      >
+        <View style={styles.centerLoading}>
+          <Text style={styles.startTitle}>Preparing phrase session...</Text>
+        </View>
+      </ImageBackground>
+    );
+  }
+
   if (!state) {
     const displayCount = Math.round(cardCount);
     const minCardsAllowed = customWords.length > 0 ? 0 : MIN_CARDS;
@@ -830,37 +874,39 @@ export function FlashSessionScreen() {
         </ScrollView>
         {customEditorOverlay}
         {customTooltipOverlay}
-        <View
-          style={[
-            styles.floatingButtons,
-            { bottom: Math.max(insets.bottom || 0, 10) + 16 },
-          ]}
-        >
-          <Pressable
-            style={({ pressed }) => [
-              styles.customIconButton,
-              styles.customInfoButton,
-              pressed && styles.customIconButtonPressed,
+        {!hasPresetWords && (
+          <View
+            style={[
+              styles.floatingButtons,
+              { bottom: Math.max(insets.bottom || 0, 10) + 16 },
             ]}
-            onPress={() => {
-              setShowCustomTooltip((prev) => !prev);
-            }}
           >
-            <FontAwesome5 name="info-circle" size={16} color={theme.textPrimary} solid />
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.customIconButton,
-              styles.customAddButton,
-              pressed && styles.customIconButtonPressed,
-            ]}
-            onPress={() => {
-              handleToggleCustomEditor();
-            }}
-          >
-            <FontAwesome5 name="plus" size={18} color={theme.textPrimary} solid />
-          </Pressable>
-        </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.customIconButton,
+                styles.customInfoButton,
+                pressed && styles.customIconButtonPressed,
+              ]}
+              onPress={() => {
+                setShowCustomTooltip((prev) => !prev);
+              }}
+            >
+              <FontAwesome5 name="info-circle" size={16} color={theme.textPrimary} solid />
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.customIconButton,
+                styles.customAddButton,
+                pressed && styles.customIconButtonPressed,
+              ]}
+              onPress={() => {
+                handleToggleCustomEditor();
+              }}
+            >
+              <FontAwesome5 name="plus" size={18} color={theme.textPrimary} solid />
+            </Pressable>
+          </View>
+        )}
         {toastMessage && (
           <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
             <View style={styles.webToast}>
@@ -897,13 +943,16 @@ export function FlashSessionScreen() {
             correctChoiceIndex={state.correctChoiceIndex}
             selectedChoiceIndex={state.selectedChoiceIndex}
             onSwipeLeft={handleSwipeLeft}
-            onSwipeRight={swipeRight}
+            onSwipeRight={handleSwipeRight}
             onChooseOption={chooseOption}
             onAdvance={advanceToNextCard}
             onPlayAudio={handlePlayAudio}
             onTapToSkip={handleTapToSkip}
             playbackRate={playbackRate}
             onCycleSpeed={handleCycleSpeed}
+            typedAnswer={typedAnswer}
+            onChangeTypedAnswer={setTypedAnswer}
+            onSubmitTypedAnswer={handleSwipeRight}
             disabled={state.cleared || stopModalVisible || showGestureDemo}
           />
         </View>
@@ -991,6 +1040,12 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: theme.bg0,
+  },
+  centerLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
   },
   content: {
     flex: 1,

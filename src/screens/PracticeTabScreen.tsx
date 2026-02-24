@@ -3,10 +3,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FlashSessionScreen } from './FlashSessionScreen';
 import { SentencePracticeScreen } from './SentencePracticeScreen';
-import { PhrasePracticeScreen } from './PhrasePracticeScreen';
 import { WordCardPracticeScreen } from './WordCardPracticeScreen';
 import { ensureV11Initialized, getSelectedDeck } from '../lib/v11Storage';
+import { BUILT_IN_PHRASES } from '../data/phrases';
 import { theme } from '../theme';
+import type { Word } from '../types/word';
 
 type Mode = 'words' | 'sentences' | 'phrases';
 
@@ -32,6 +33,16 @@ export function PracticeTabScreen() {
   const sourceClipId = useMemo(
     () => (typeof params.clipId === 'string' ? params.clipId : undefined),
     [params.clipId]
+  );
+  const phraseWords = useMemo<Word[]>(
+    () =>
+      BUILT_IN_PHRASES.map((phrase) => ({
+        id: `phrase-${phrase.id}`,
+        term: phrase.pt,
+        en: phrase.en,
+        language: 'pt',
+      })),
+    []
   );
 
   if (mode === 'words') {
@@ -98,13 +109,7 @@ export function PracticeTabScreen() {
             <Text style={styles.modeLabelMuted}>Imports</Text>
           </Pressable>
         </View>
-        <PhrasePracticeScreen
-          sourceClipId={sourceClipId}
-          onBack={() => {
-            setMode('words');
-            router.replace('/(tabs)/practice');
-          }}
-        />
+        <FlashSessionScreen presetWords={phraseWords} />
       </View>
     );
   }

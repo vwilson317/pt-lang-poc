@@ -69,41 +69,36 @@ function parseWhatsAppMessages(rawText: string): WhatsAppMessage[] {
   return parsed;
 }
 
-function splitSentences(text: string): string[] {
-  const flattened = text.replace(/\s+/g, ' ').trim();
-  if (!flattened) return [];
-  return flattened
-    .split(/(?<=[.!?])\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+function normalizeMessageText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
-function isCandidateSentence(text: string): boolean {
+function isCandidateMessage(text: string): boolean {
   if (!text) return false;
   if (MEDIA_OMITTED_RE.test(text)) return false;
   if (SYSTEM_NOISE_RE.test(text)) return false;
 
   const cleaned = text.replace(URL_RE, '').trim();
   if (!cleaned) return false;
-  if (cleaned.length < 12 || cleaned.length > 240) return false;
+  if (cleaned.length < 2 || cleaned.length > 420) return false;
 
   const words = cleaned.split(/\s+/).filter(Boolean);
-  if (words.length < 3 || words.length > 42) return false;
+  if (words.length < 1 || words.length > 90) return false;
 
   const letters = (cleaned.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/g) ?? []).length;
   const symbols = (cleaned.match(/[^\w\sÀ-ÖØ-öø-ÿ]/g) ?? []).length;
-  if (letters < 8) return false;
+  if (letters < 1) return false;
   if (symbols > letters) return false;
 
   return true;
 }
 
-function sentenceQualityScore(text: string): number {
+function messageQualityScore(text: string): number {
   const words = text.split(/\s+/).filter(Boolean).length;
   let score = 0;
-  if (words >= 5 && words <= 24) score += 2;
+  if (words >= 1 && words <= 40) score += 2;
   if (/[.!?]$/.test(text)) score += 1;
-  if (!/\d{4,}/.test(text)) score += 1;
+  if (!/\d{8,}/.test(text)) score += 1;
   if (!URL_DETECT_RE.test(text)) score += 1;
   return score;
 }
@@ -135,38 +130,36 @@ export function buildWhatsAppImport(
   rawText: string
 ): WhatsAppImportResult {
   const messages = parseWhatsAppMessages(rawText);
-  const base = messages;
-
-  const sentenceCandidates = base.flatMap((message) => splitSentences(message.text));
-  const qualityFiltered = sentenceCandidates.filter((sentence) => {
-    if (!isCandidateSentence(sentence)) return false;
-    return sentenceQualityScore(sentence) >= 2;
+  const messageCandidates = messages.map((message) => normalizeMessageText(message.text));
+  const qualityFiltered = messageCandidates.filter((message) => {
+    if (!isCandidateMessage(message)) return false;
+    return messageQualityScore(message) >= 2;
   });
 
   const deduped = Array.from(
     new Map(
-      qualityFiltered.map((sentence) => [
-        sentence
+      qualityFiltered.map((message) => [
+        message
           .toLocaleLowerCase()
           .replace(/[^A-Za-z0-9À-ÖØ-öø-ÿ\s]/g, '')
           .trim(),
-        sentence.trim(),
+        message.trim(),
       ])
     ).values()
   );
 
-  const segments: ClipSegment[] = deduped.map((sentence, index) => ({
+  const segments: ClipSegment[] = deduped.map((message, index) => ({
     id: `wa-seg-${index + 1}`,
     startMs: index * 1000,
     endMs: index * 1000,
-    textOriginal: sentence,
+    textOriginal: message,
     // We only have source chat text in this flow, so we keep back identical for now.
-    textTranslated: sentence,
+    textTranslated: message,
   }));
 
   const warningBits: string[] = [];
   if (!messages.length) warningBits.push('No WhatsApp messages were recognized in this file.');
-  const droppedCount = sentenceCandidates.length - deduped.length;
+  const droppedCount = messageCandidates.length - deduped.length;
   if (droppedCount > 0) warningBits.push(`${droppedCount} low-quality or duplicate lines were skipped.`);
 
   return {

@@ -73,10 +73,13 @@ function scoreZipTextEntry(entryName: string): number {
   return score;
 }
 
-function pickZipTextEntry(zip: JSZip) {
+function pickZipTextEntry(zip: any) {
   const textEntries = zip
     .file(/\.txt$/i)
-    .filter((entry) => !entry.dir && !entry.name.toLowerCase().startsWith('__macosx/'));
+    .filter(
+      (entry: { dir: boolean; name: string }) =>
+        !entry.dir && !entry.name.toLowerCase().startsWith('__macosx/')
+    );
   if (textEntries.length === 0) return undefined;
   return [...textEntries].sort((left, right) => {
     const scoreDiff = scoreZipTextEntry(right.name) - scoreZipTextEntry(left.name);
@@ -139,7 +142,6 @@ export function ImportTabScreen() {
   const [progressLabel, setProgressLabel] = useState('Preparing import...');
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const [importedCardsCount, setImportedCardsCount] = useState(0);
-  const [importedSentenceCount, setImportedSentenceCount] = useState(0);
   const [importedWordCount, setImportedWordCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -158,22 +160,17 @@ export function ImportTabScreen() {
             return;
           }
           const clip = await getJobResult(jobId);
-          await upsertClip({ ...clip, importCardType: 'sentence' });
+          await upsertClip({ ...clip, importCardType: 'word' });
           const deckId = await getSelectedDeckId();
-          const sentenceCards: FlashCardRecord[] = clip.segments.map((segment) => ({
-            id: `sentence-${clip.id}-${segment.id}`,
-            deckId,
-            cardType: 'sentence',
-            front: segment.textOriginal,
-            back: segment.textTranslated,
-            sourceClipId: clip.id,
-            sourceSegmentId: segment.id,
-            createdAt: Date.now(),
-          }));
-          await addCards(sentenceCards);
-          setImportedCardsCount(sentenceCards.length);
-          setImportedSentenceCount(sentenceCards.length);
-          setImportedWordCount(0);
+          const wordCards = buildWordCardsFromSegments(clip.segments, deckId, clip.id);
+          if (wordCards.length === 0) {
+            setState('FAILED');
+            setErrorMessage('No word cards were created from this media.');
+            return;
+          }
+          await addCards(wordCards);
+          setImportedCardsCount(wordCards.length);
+          setImportedWordCount(wordCards.length);
           setImportWarning(null);
           setProgress(100);
           setProgressLabel('Complete');
@@ -322,7 +319,6 @@ export function ImportTabScreen() {
     setErrorMessage(null);
     setImportWarning(null);
     setImportedCardsCount(0);
-    setImportedSentenceCount(0);
     setImportedWordCount(0);
     setJobId(null);
     setWhatsAppTextCache(null);
@@ -359,7 +355,7 @@ export function ImportTabScreen() {
         id: clipId,
         sourceLanguage: 'pt' as const,
         targetLanguage: 'en' as const,
-        importCardType: 'both' as const,
+        importCardType: 'word' as const,
         transcriptOriginal: parsed.transcript,
         transcriptTranslated: parsed.transcript,
         segments: parsed.segments,
@@ -368,27 +364,15 @@ export function ImportTabScreen() {
 
       await upsertClip(clip);
       const deckId = await getSelectedDeckId();
-      const sentenceCards: FlashCardRecord[] = clip.segments.map((segment) => ({
-        id: `sentence-${clip.id}-${segment.id}`,
-        deckId,
-        cardType: 'sentence',
-        front: segment.textOriginal,
-        back: segment.textTranslated,
-        sourceClipId: clip.id,
-        sourceSegmentId: segment.id,
-        createdAt: Date.now(),
-      }));
       const wordCards = buildWordCardsFromSegments(clip.segments, deckId, clip.id);
-      const generatedCards = [...sentenceCards, ...wordCards];
-      if (generatedCards.length === 0) {
+      if (wordCards.length === 0) {
         setState('FAILED');
         setErrorMessage('No cards were created from this thread.');
         return;
       }
 
-      await addCards(generatedCards);
-      setImportedCardsCount(generatedCards.length);
-      setImportedSentenceCount(sentenceCards.length);
+      await addCards(wordCards);
+      setImportedCardsCount(wordCards.length);
       setImportedWordCount(wordCards.length);
       setImportWarning(parsed.warning ?? null);
       setProgress(100);
@@ -396,7 +380,7 @@ export function ImportTabScreen() {
       setState('DONE');
       router.push({
         pathname: '/(tabs)/practice',
-        params: { mode: 'sentences', clipId: clip.id },
+        params: { mode: 'words', clipId: clip.id },
       });
     } catch (error) {
       setState('FAILED');
@@ -473,7 +457,7 @@ export function ImportTabScreen() {
         {importKind === 'whatsapp' && (
           <View style={styles.whatsAppOptions}>
             <Text style={styles.helper}>
-              We import the full conversation and create both sentence cards and word cards.
+              We import the full conversation and create word cards.
             </Text>
           </View>
         )}
@@ -523,10 +507,10 @@ export function ImportTabScreen() {
         <Text style={styles.title}>{importKind === 'whatsapp' ? 'Thread imported' : 'Media ready'}</Text>
         {importKind === 'whatsapp' ? (
           <Text style={styles.helper}>
-            Created {importedSentenceCount} sentence cards and {importedWordCount} word cards.
+            Created {importedWordCount} word cards.
           </Text>
         ) : (
-          <Text style={styles.helper}>Created {importedCardsCount} sentence cards.</Text>
+          <Text style={styles.helper}>Created {importedCardsCount} word cards.</Text>
         )}
         {importWarning && <Text style={styles.warning}>{importWarning}</Text>}
         <View style={styles.row}>
@@ -542,7 +526,6 @@ export function ImportTabScreen() {
               setErrorMessage(null);
               setImportWarning(null);
               setImportedCardsCount(0);
-              setImportedSentenceCount(0);
               setImportedWordCount(0);
               setWhatsAppTextCache(null);
               setProgress(0);
@@ -568,7 +551,6 @@ export function ImportTabScreen() {
           setErrorMessage(null);
           setImportWarning(null);
           setImportedCardsCount(0);
-          setImportedSentenceCount(0);
           setImportedWordCount(0);
           setWhatsAppTextCache(null);
           setJobId(null);

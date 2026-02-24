@@ -1,5 +1,13 @@
-import React, { useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Pressable, useWindowDimensions } from 'react-native';
+import React, { useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Pressable,
+  TextInput,
+  useWindowDimensions,
+} from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -78,6 +86,9 @@ type FlashCardProps = {
   onTapToSkip?: () => void;
   playbackRate?: number;
   onCycleSpeed?: () => void;
+  typedAnswer?: string;
+  onChangeTypedAnswer?: (value: string) => void;
+  onSubmitTypedAnswer?: () => void;
   disabled?: boolean;
 };
 
@@ -95,6 +106,9 @@ export function FlashCard({
   onTapToSkip,
   playbackRate = 0.5,
   onCycleSpeed,
+  typedAnswer,
+  onChangeTypedAnswer,
+  onSubmitTypedAnswer,
   disabled = false,
 }: FlashCardProps) {
   const { width: viewportWidth } = useWindowDimensions();
@@ -222,6 +236,20 @@ export function FlashCard({
               )}
               {word.pronHintEn != null && (
                 <Text style={styles.pronHint}>{word.pronHintEn}</Text>
+              )}
+              {uiState === 'PROMPT' && onChangeTypedAnswer && (
+                <TextInput
+                  value={typedAnswer ?? ''}
+                  onChangeText={onChangeTypedAnswer}
+                  placeholder="Type English (optional)"
+                  placeholderTextColor={theme.textMuted}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={onSubmitTypedAnswer}
+                  editable={!disabled}
+                  style={styles.answerInput}
+                />
               )}
 
               {uiState === 'PROMPT' && (
@@ -375,6 +403,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: 'center',
     textTransform: 'uppercase',
+  },
+  answerInput: {
+    width: '100%',
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    backgroundColor: 'rgba(4,8,24,0.55)',
+    color: theme.textPrimary,
+    fontSize: 15,
+    paddingHorizontal: 14,
+    marginTop: 4,
   },
   audioButton: {
     minHeight: theme.ctaMinHeight,

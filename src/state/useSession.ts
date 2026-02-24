@@ -64,6 +64,16 @@ function normalizeMaybeText(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function normalizeAnswerText(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 function normalizeStartSessionInput(input: StartSessionInput): StartSessionOptions {
   if (typeof input === 'number') {
     return { cardCount: Math.max(0, Math.floor(input)), customWords: [], language: 'pt' };
@@ -265,7 +275,7 @@ export function useSession() {
     });
   }, []);
 
-  const swipeRight = useCallback(() => {
+  const swipeRight = useCallback((typedAnswer?: string) => {
     setState((prev) => {
       if (!prev || prev.uiState !== 'PROMPT' || !prev.currentCardId) return prev;
       const word = deckByIdRef.current.get(prev.currentCardId);
@@ -288,6 +298,32 @@ export function useSession() {
           choiceOptions: undefined,
           cleared,
         };
+      }
+      const normalizedTypedAnswer = normalizeMaybeText(typedAnswer);
+      if (normalizedTypedAnswer) {
+        const isTypedAnswerCorrect =
+          normalizeAnswerText(normalizedTypedAnswer) === normalizeAnswerText(correctEn);
+        if (isTypedAnswerCorrect) {
+          const id = prev.currentCardId;
+          const newQueue = prev.queue.filter((x) => x !== id);
+          const newCorrectSet = new Set(prev.correctSet);
+          newCorrectSet.add(id);
+          persistReview(id, 'good');
+          const cleared = newCorrectSet.size === prev.deckCount;
+          if (cleared) clearedAtMs.current = Date.now();
+          return {
+            ...prev,
+            queue: newQueue,
+            correctSet: newCorrectSet,
+            rightCount: prev.rightCount + 1,
+            uiState: 'FEEDBACK_CORRECT',
+            selectedChoiceIndex: undefined,
+            correctChoiceIndex: undefined,
+            choiceOptions: undefined,
+            currentCardWasGuess: false,
+            cleared,
+          };
+        }
       }
       const distractors = getDistractors(
         correctEn,

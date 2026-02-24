@@ -42,7 +42,7 @@ export function ClipDetailScreen({ clipId }: Props) {
   }, []);
 
   const studyPack = useMemo(() => (clip ? buildStudyPack(clip) : ''), [clip]);
-  const importCardType = clip?.importCardType ?? 'sentence';
+  const importCardType = clip?.importCardType ?? 'word';
   const importCardTypeLabel =
     importCardType === 'word'
       ? 'Words'
