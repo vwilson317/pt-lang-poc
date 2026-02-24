@@ -54,4 +54,5 @@ export type DeckCounts = {
   total: number;
   word: number;
   sentence: number;
+  phrase: number;
 };

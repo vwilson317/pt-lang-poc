@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "lexicon:generate": "node data/generate_lexicon_seed.mjs",
     "test:whatsapp-import": "rm -rf /tmp/wa-import-test && npx tsc --outDir /tmp/wa-import-test --module commonjs --target es2020 src/lib/whatsAppImport.integration.test.ts && node /tmp/wa-import-test/lib/whatsAppImport.integration.test.js",
-    "build:web": "expo export --platform web",
+    "build:web": "expo export --platform web --clear",
     "go:run": "cd server && go run ./cmd/api",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down"

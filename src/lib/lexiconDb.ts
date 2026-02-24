@@ -11,7 +11,7 @@ import type { TranslationLookupDb } from './translationLookup';
 const KEY_DB_VERSION = 'lexiconDb:v1:version';
 const KEY_TRANSLATION_MAPPINGS = 'lexiconDb:v1:translationMappingsByLookup';
 const KEY_USER_CACHE = 'lexiconDb:v1:userCacheByLookup';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 type MappingLookupIndex = Record<string, TranslationMappingRow>;
 type UserCacheLookupIndex = Record<string, UserCacheRow>;
@@ -95,7 +95,8 @@ class AsyncStorageTranslationDb implements TranslationLookupDb {
 
     if (version !== DB_VERSION) {
       this.mappingsByLookup = buildSeedMappingsIndex();
-      this.userCacheByLookup = cachedUserIndex;
+      // Drop stale cache entries from older versions (many are source-token echoes).
+      this.userCacheByLookup = version > 0 && version < DB_VERSION ? {} : cachedUserIndex;
       await writeJson(KEY_TRANSLATION_MAPPINGS, this.mappingsByLookup);
       await writeJson(KEY_USER_CACHE, this.userCacheByLookup);
       await AsyncStorage.setItem(KEY_DB_VERSION, String(DB_VERSION));

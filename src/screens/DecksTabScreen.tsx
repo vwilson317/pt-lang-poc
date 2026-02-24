@@ -36,6 +36,7 @@ export function DecksTabScreen() {
   }, []);
 
   const handleSwitchDeck = useCallback((deck: DeckWithCounts) => {
+    if (deck.counts.total === 0) return;
     const confirmAndSwitch = () => {
       void setSelectedDeck(deck.id).then(() => {
         void load();
@@ -84,22 +85,34 @@ export function DecksTabScreen() {
       <Text style={styles.title}>Decks</Text>
       <Text style={styles.subtitle}>Add to Deck</Text>
       {decks.map((deck) => (
-        <Pressable
-          key={deck.id}
-          style={[styles.deckCard, deck.isSelected && styles.deckCardSelected]}
-          onPress={() => {
-            if (deck.isSelected) return;
-            handleSwitchDeck(deck);
-          }}
-        >
-          <View style={styles.deckTopRow}>
-            <Text style={styles.deckName}>{deck.name}</Text>
-            {deck.isSelected && <Text style={styles.selectedBadge}>Selected</Text>}
-          </View>
-          <Text style={styles.deckCounts}>
-            Total: {deck.counts.total} · Words: {deck.counts.word} · Sentences: {deck.counts.sentence}
-          </Text>
-        </Pressable>
+        (() => {
+          const isEmpty = deck.counts.total === 0;
+          const isDisabled = !deck.isSelected && isEmpty;
+          return (
+            <Pressable
+              key={deck.id}
+              disabled={isDisabled}
+              style={[
+                styles.deckCard,
+                deck.isSelected && styles.deckCardSelected,
+                isDisabled && styles.deckCardDisabled,
+              ]}
+              onPress={() => {
+                if (deck.isSelected) return;
+                handleSwitchDeck(deck);
+              }}
+            >
+              <View style={styles.deckTopRow}>
+                <Text style={[styles.deckName, isDisabled && styles.deckNameDisabled]}>{deck.name}</Text>
+                {deck.isSelected && <Text style={styles.selectedBadge}>Selected</Text>}
+                {isDisabled && <Text style={styles.emptyBadge}>Empty</Text>}
+              </View>
+              <Text style={styles.deckCounts}>
+                Total: {deck.counts.total} · Words: {deck.counts.word} · Sentences: {deck.counts.sentence} · Phrases: {deck.counts.phrase}
+              </Text>
+            </Pressable>
+          );
+        })()
       ))}
     </View>
   );
@@ -139,6 +152,9 @@ const styles = StyleSheet.create({
     borderColor: theme.selectedBorder,
     backgroundColor: theme.selectedBg,
   },
+  deckCardDisabled: {
+    opacity: 0.6,
+  },
   deckTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -149,8 +165,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
+  deckNameDisabled: {
+    color: theme.textMuted,
+  },
   selectedBadge: {
     color: theme.brand,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  emptyBadge: {
+    color: theme.textMuted,
     fontSize: 12,
     fontWeight: '700',
   },

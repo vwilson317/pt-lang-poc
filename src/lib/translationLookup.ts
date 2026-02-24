@@ -47,6 +47,10 @@ function normalizeToken(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
+function isLikelyUntranslatedEcho(sourceToken: string, translation: string): boolean {
+  return normalizeToken(sourceToken) === normalizeToken(translation);
+}
+
 function buildSourceLookupKey(
   sourceLanguage: LexiconLanguage,
   targetLanguage: LexiconLanguage,
@@ -80,6 +84,7 @@ export function createTranslationLookupService(db?: TranslationLookupDb): Transl
       fallbackTranslation,
     }): Promise<TranslationLookupHit> {
       const sourceToken = normalizeToken(token);
+      const normalizedFallback = normalizeToken(fallbackTranslation || '');
       if (!sourceToken) {
         return { translation: fallbackTranslation?.trim() || token, provider: 'fallback' };
       }
@@ -112,6 +117,23 @@ export function createTranslationLookupService(db?: TranslationLookupDb): Transl
           token: sourceToken,
         });
         if (cached?.translation) {
+          const staleEcho =
+            isLikelyUntranslatedEcho(sourceToken, cached.translation) &&
+            normalizedFallback.length > 0 &&
+            !isLikelyUntranslatedEcho(sourceToken, normalizedFallback);
+          if (staleEcho) {
+            await db.putUserCache({
+              sourceLanguage,
+              targetLanguage,
+              token: sourceToken,
+              translation: normalizedFallback,
+              updatedAtMs: Date.now(),
+            });
+            return {
+              translation: normalizedFallback,
+              provider: 'fallback',
+            };
+          }
           return {
             translation: cached.translation,
             mappingKey: cached.mappingKey,
@@ -147,7 +169,7 @@ export function createTranslationLookupService(db?: TranslationLookupDb): Transl
         };
       }
 
-      const fallback = normalizeToken(fallbackTranslation || '') || sourceToken;
+      const fallback = normalizedFallback || sourceToken;
       return {
         translation: fallback,
         provider: 'fallback',

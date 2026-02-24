@@ -148,11 +148,12 @@ export async function getDeckCounts(deckId: string): Promise<DeckCounts> {
   const cards = await getCardsByDeck(deckId);
   const sentence = cards.filter((card) => card.cardType === 'sentence').length;
   const word = cards.filter((card) => card.cardType === 'word').length;
+  const phrase = cards.filter((card) => card.cardType === 'phrase').length;
   return {
-    // Keep deck metrics focused on words/sentences until phrase stats are added.
-    total: word + sentence,
+    total: word + sentence + phrase,
     word,
     sentence,
+    phrase,
   };
 }
 
