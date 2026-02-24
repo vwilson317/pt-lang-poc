@@ -23,13 +23,6 @@ type PhraseHit = {
 
 const MAX_PHRASE_LEN = 5;
 const PTBR_WORD_RE = /[A-Za-zÀ-ÖØ-öø-ÿ']+/g;
-const PTBR_STOPWORDS = new Set([
-  'a', 'ao', 'aos', 'as', 'com', 'da', 'das', 'de', 'do', 'dos', 'e', 'em', 'ha', 'na', 'nas',
-  'nao', 'no', 'nos', 'o', 'os', 'para', 'por', 'pra', 'que', 'se', 'um', 'uma',
-]);
-const PHRASE_TRIGGER_SET = new Set([
-  'bem', 'dar', 'ficar', 'tem', 'como', 'de', 'que', 'ha', 'nao', 'tudo',
-]);
 
 const LOCAL_PHRASE_SEED: Record<string, string> = {
   'tudo bem': 'how are you',
@@ -65,12 +58,8 @@ const LOCAL_PHRASE_SEED: Record<string, string> = {
   'tem como': 'is it possible',
 };
 
-const phraseCache = new Map<string, string>(
-  Object.entries(LOCAL_PHRASE_SEED).map(([phrase, translation]) => [
-    `p:ptbr:${phrase}`,
-    translation,
-  ])
-);
+const phraseCache = new Map<string, string>();
+const singleWordPhraseCache = new Map<string, string>();
 
 const wordCache = new Map<string, string>();
 
@@ -95,6 +84,19 @@ function normalizeEnglishForGuess(value: string): string {
     .filter(Boolean);
   if (parts.length === 0) return cleaned || value;
   return parts[0];
+}
+
+function ensurePhraseCache(): void {
+  if (phraseCache.size > 0) return;
+  for (const [rawPhrase, translation] of Object.entries(LOCAL_PHRASE_SEED)) {
+    const normalizedPhrase = normalizePtBr(rawPhrase);
+    if (!normalizedPhrase) continue;
+    const key = `p:ptbr:${normalizedPhrase}`;
+    if (!phraseCache.has(key)) phraseCache.set(key, translation);
+    if (!normalizedPhrase.includes(' ') && !singleWordPhraseCache.has(normalizedPhrase)) {
+      singleWordPhraseCache.set(normalizedPhrase, translation);
+    }
+  }
 }
 
 function ensureWordCache(): void {
@@ -137,15 +139,8 @@ function phraseCandidates(
   return out;
 }
 
-function phrasePenalty(normPhrase: string): number {
-  const parts = normPhrase.split(' ').filter(Boolean);
-  if (parts.length === 0) return 0;
-  const stopwordCount = parts.filter((part) => PTBR_STOPWORDS.has(part)).length;
-  return stopwordCount >= Math.ceil(parts.length * 0.67) ? -15 : 0;
-}
-
 function resolveBestPhrase(candidates: PhraseCandidate[]): PhraseHit | null {
-  let best: PhraseHit | null = null;
+  ensurePhraseCache();
   for (const candidate of candidates) {
     const cacheKey = `p:ptbr:${candidate.normPhrase}`;
     const cached = phraseCache.get(cacheKey);
@@ -159,23 +154,13 @@ function resolveBestPhrase(candidates: PhraseCandidate[]): PhraseHit | null {
       score,
     };
   }
-  for (const candidate of candidates) {
-    const len = candidate.end - candidate.start + 1;
-    const score = len * 10 + phrasePenalty(candidate.normPhrase);
-    if (!best || score > best.score) {
-      best = {
-        ...candidate,
-        translation: '',
-        provider: 'local',
-        score,
-      };
-    }
-  }
-  if (!best || best.score < 30 || !best.translation) return null;
-  return best;
+  return null;
 }
 
 function getWordTranslation(normWord: string, rawWord: string): string {
+  ensurePhraseCache();
+  const phraseWord = singleWordPhraseCache.get(normWord);
+  if (phraseWord) return phraseWord;
   ensureWordCache();
   return wordCache.get(`w:ptbr:${normWord}`) ?? rawWord.toLocaleLowerCase();
 }
@@ -199,12 +184,6 @@ export function translatePtBrMessageWithPhraseEscalation(message: string): Phras
   const phraseCovered = new Set<number>();
 
   for (let position = 0; position < words.length; position += 1) {
-    const token = words[position];
-    const looksLikePhraseTarget =
-      PHRASE_TRIGGER_SET.has(token.norm) ||
-      (position > 0 && PTBR_STOPWORDS.has(words[position - 1]?.norm ?? '')) ||
-      (position + 1 < words.length && PTBR_STOPWORDS.has(words[position + 1]?.norm ?? ''));
-    if (!looksLikePhraseTarget) continue;
     const hit = resolveBestPhrase(phraseCandidates(words, position));
     if (!hit) continue;
     const hasOverlap = Array.from({ length: hit.end - hit.start + 1 }).some((_, offset) =>

@@ -55,6 +55,14 @@ export async function runWhatsAppImportIntegrationTest(): Promise<void> {
     parsed.segments[1]?.textTranslated === 'how are you',
     'expected phrase-level translation to be preserved for transcript output'
   );
+  const singleWord = await buildWhatsAppImport(
+    '[01/01/2026, 10:02:00 AM] +55 11 90000-0000: valeu',
+    { translationDb: fakeDbForLookupOrder() }
+  );
+  assert(
+    singleWord.segments[0]?.textTranslated === 'thanks',
+    'expected single-word phrase seed to translate "valeu"'
+  );
 }
 
 declare const require: any;
