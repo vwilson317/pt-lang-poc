@@ -127,6 +127,7 @@ function buildWordCardsFromSegments(
 type AiCardLine = {
   front: string;
   back: string;
+  phonetic?: string;
   cardType: 'word' | 'phrase';
   level?: string;
   tag?: string;
@@ -138,20 +139,23 @@ function parseAiFlashcardLine(line: string): AiCardLine | null {
   const metaPart = separatorIdx >= 0 ? line.slice(separatorIdx + 2) : '';
   const parts = mainPart.split('|').map((s) => s.trim());
   if (parts.length < 2) return null;
-  const [front, back] = parts;
+  const [front, back, hint] = parts;
   if (!front || !back) return null;
   const meta: Record<string, string> = {};
   for (const kv of metaPart.split(';')) {
     const eqIdx = kv.indexOf('=');
-    if (eqIdx > 0) meta[kv.slice(0, eqIdx).trim()] = kv.slice(eqIdx + 1).trim();
+    if (eqIdx > 0) meta[kv.slice(0, eqIdx).trim().toLocaleLowerCase()] = kv.slice(eqIdx + 1).trim();
   }
+  const phonetic =
+    meta['phonetic'] ?? meta['phonetics'] ?? meta['pronunciation'] ?? meta['pron'] ?? hint;
   const cardType: 'word' | 'phrase' = meta['type'] === 'phrase' ? 'phrase' : 'word';
   return {
     front,
     back,
+    phonetic: phonetic?.trim() || undefined,
     cardType,
-    level: meta['level'] ?? undefined,
-    tag: meta['tag'] ?? undefined,
+    level: meta['level'],
+    tag: meta['tag'],
   };
 }
 
@@ -172,7 +176,7 @@ function buildCardsFromAiData(
   const seen = new Set<string>();
   const cards: FlashCardRecord[] = [];
   for (let i = 0; i < parsed.length; i++) {
-    const { front, back, cardType } = parsed[i];
+    const { front, back, cardType, phonetic } = parsed[i];
     if (seen.has(front)) continue;
     seen.add(front);
     const slug = sanitizeTokenForCardId(front);
@@ -184,6 +188,7 @@ function buildCardsFromAiData(
       cardType,
       front,
       back: back || front,
+      pronHintEn: phonetic,
       wordType: metaParts.length > 0 ? metaParts.join(' · ') : undefined,
       createdAt: Date.now() + i,
     });
@@ -672,7 +677,9 @@ export function ImportTabScreen() {
       <View style={styles.centered}>
         <Text style={styles.title}>Paste AI Cards</Text>
         <Text style={styles.helper}>
-          {'Paste AI-generated flashcards below.\nFormat: FRONT | BACK | HINT ||type=word;level=A1'}
+          {
+            'Paste AI-generated flashcards below.\nFormat: FRONT | BACK | HINT ||type=word;level=A1;phonetic=foo-NEH-tik'
+          }
         </Text>
         <TextInput
           style={styles.textInput}

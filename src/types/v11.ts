@@ -20,6 +20,7 @@ export type FlashCardRecord = {
   cardType: CardType;
   front: string;
   back: string;
+  pronHintEn?: string;
   phraseId?: string;
   wordType?: string;
   sourceClipId?: string;
