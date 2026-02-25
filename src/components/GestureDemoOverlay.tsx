@@ -71,7 +71,9 @@ export function GestureDemoOverlay({ visible, onDismiss }: GestureDemoOverlayPro
           </View>
           <Text style={styles.label}>Swipe ↑ anywhere = Guess</Text>
           <Text style={styles.label}>Know it? Type it in English, then swipe right.</Text>
-          <Text style={styles.label}>Tap = Stop Audio</Text>
+          <Text style={styles.label}>Ending practice copies missed and unknown words to clipboard.</Text>
+          <Text style={styles.label}>Tap while reviewing = Continue</Text>
+          <Text style={styles.label}>Tap during prompt = Stop Audio</Text>
           <Text style={styles.label}>Tap speed badge to change speed</Text>
         </View>
       </View>

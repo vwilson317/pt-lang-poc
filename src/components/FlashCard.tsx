@@ -92,6 +92,11 @@ type FlashCardProps = {
   disabled?: boolean;
   onOpenInfo?: () => void;
   onOpenAdd?: () => void;
+  showPhotoPromptCta?: boolean;
+  onAddPhotoHint?: () => void;
+  onDismissPhotoPrompt?: () => void;
+  showPhotoHintLink?: boolean;
+  onOpenPhotoHint?: () => void;
 };
 
 export function FlashCard({
@@ -114,6 +119,11 @@ export function FlashCard({
   disabled = false,
   onOpenInfo,
   onOpenAdd,
+  showPhotoPromptCta = false,
+  onAddPhotoHint,
+  onDismissPhotoPrompt,
+  showPhotoHintLink = false,
+  onOpenPhotoHint,
 }: FlashCardProps) {
   const { width: viewportWidth } = useWindowDimensions();
   const translateX = useSharedValue(0);
@@ -134,10 +144,10 @@ export function FlashCard({
       return () => clearTimeout(t);
     }
     if (uiState === 'FEEDBACK_WRONG') {
-      const t = setTimeout(onAdvance, 900);
+      const t = setTimeout(onAdvance, showPhotoPromptCta ? 2500 : 900);
       return () => clearTimeout(t);
     }
-  }, [uiState, onAdvance]);
+  }, [onAdvance, showPhotoPromptCta, uiState]);
 
   const panGesture = Gesture.Pan()
     .enabled(!disabled && uiState === 'PROMPT')
@@ -247,6 +257,18 @@ export function FlashCard({
               {word.pronHintEn != null && (
                 <Text style={styles.pronHint}>{word.pronHintEn}</Text>
               )}
+              {showPhotoHintLink && onOpenPhotoHint && (
+                <Pressable
+                  style={({ pressed }) => [styles.photoHintLink, pressed && styles.photoHintLinkPressed]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onOpenPhotoHint();
+                  }}
+                  disabled={disabled}
+                >
+                  <Text style={styles.photoHintText}>📷 hint</Text>
+                </Pressable>
+              )}
               {uiState === 'PROMPT' && onChangeTypedAnswer && (
                 <TextInput
                   value={typedAnswer ?? ''}
@@ -337,6 +359,44 @@ export function FlashCard({
                       </TouchableOpacity>
                     );
                   })}
+                </View>
+              )}
+              {uiState === 'FEEDBACK_WRONG' && (
+                <View style={styles.feedbackFooter}>
+                  <Text style={styles.autoAdvance}>Tap to continue</Text>
+                  {showPhotoPromptCta && (
+                    <View style={styles.photoPromptWrap}>
+                      <Text style={styles.photoPromptBody}>Use an image to trigger your memory.</Text>
+                      <View style={styles.photoPromptActions}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.photoPromptPrimary,
+                            pressed && styles.photoPromptPrimaryPressed,
+                          ]}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            onAddPhotoHint?.();
+                          }}
+                          disabled={disabled}
+                        >
+                          <Text style={styles.photoPromptPrimaryLabel}>Add image</Text>
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.photoPromptSecondary,
+                            pressed && styles.photoPromptSecondaryPressed,
+                          ]}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            onDismissPhotoPrompt?.();
+                          }}
+                          disabled={disabled}
+                        >
+                          <Text style={styles.photoPromptSecondaryLabel}>Not helpful</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
             </View>
@@ -541,5 +601,78 @@ const styles = StyleSheet.create({
   cardUtilityButtonAdd: {
     backgroundColor: 'rgba(156, 84, 213, 0.26)',
     borderColor: 'rgba(201, 167, 255, 0.54)',
+  },
+  photoHintLink: {
+    marginTop: -6,
+    marginBottom: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  photoHintLinkPressed: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  photoHintText: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  feedbackFooter: {
+    marginTop: 8,
+    width: '100%',
+    alignItems: 'center',
+    gap: 8,
+  },
+  photoPromptWrap: {
+    width: '100%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.18)',
+    paddingTop: 10,
+    gap: 8,
+  },
+  photoPromptBody: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  photoPromptActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  photoPromptPrimary: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.selectedBorder,
+    backgroundColor: theme.selectedBg,
+  },
+  photoPromptPrimaryPressed: {
+    opacity: 0.92,
+  },
+  photoPromptPrimaryLabel: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  photoPromptSecondary: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  photoPromptSecondaryPressed: {
+    opacity: 0.92,
+  },
+  photoPromptSecondaryLabel: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

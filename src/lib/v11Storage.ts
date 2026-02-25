@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { ClipRecord, Deck, DeckCounts, FlashCardRecord } from '../types/v11';
+import type { CardPhotoHint, ClipRecord, Deck, DeckCounts, FlashCardRecord } from '../types/v11';
 import type { Word } from '../types/word';
 import { BUILT_IN_PHRASES } from '../data/phrases';
 import { DECK_LENGTH } from '../data/words';
@@ -194,6 +194,40 @@ export async function getWordCards(deckId: string, sourceClipId?: string): Promi
     if (!sourceClipId) return true;
     return card.sourceClipId === sourceClipId;
   });
+}
+
+type WordCardProgressPatch = {
+  seenCount?: number;
+  wrongCount?: number;
+  photoPromptDismissed?: boolean;
+  photo?: CardPhotoHint | null;
+};
+
+export async function updateWordCardProgress(
+  cardId: string,
+  patch: WordCardProgressPatch
+): Promise<void> {
+  await ensureV11Initialized();
+  const cards = await getCards();
+  let didUpdate = false;
+  const nextCards = cards.map((card) => {
+    if (card.id !== cardId || card.cardType !== 'word') return card;
+    didUpdate = true;
+    const nextCard: FlashCardRecord = { ...card };
+    if (patch.seenCount != null) nextCard.seenCount = Math.max(0, patch.seenCount);
+    if (patch.wrongCount != null) nextCard.wrongCount = Math.max(0, patch.wrongCount);
+    if (patch.photoPromptDismissed != null) nextCard.photoPromptDismissed = patch.photoPromptDismissed;
+    if (patch.photo !== undefined) {
+      if (patch.photo === null) {
+        delete nextCard.photo;
+      } else {
+        nextCard.photo = patch.photo;
+      }
+    }
+    return nextCard;
+  });
+  if (!didUpdate) return;
+  await writeJson(KEY_CARDS, nextCards);
 }
 
 export async function ensureDefaultPhraseCards(deckId: string): Promise<void> {

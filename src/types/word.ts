@@ -1,4 +1,5 @@
 import type { PracticeLanguage } from './practiceLanguage';
+import type { CardPhotoHint } from './v11';
 
 export type Word = {
   id: string;
@@ -14,4 +15,9 @@ export type Word = {
   gender?: string;
   /** infinitive, past tense, etc. (if verb) */
   verbLabel?: string;
+  sourceCardId?: string;
+  photo?: CardPhotoHint;
+  seenCount?: number;
+  wrongCount?: number;
+  photoPromptDismissed?: boolean;
 };

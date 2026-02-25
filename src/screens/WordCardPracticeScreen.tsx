@@ -22,10 +22,15 @@ export function WordCardPracticeScreen({ sourceClipId, onBack }: Props) {
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((card) => ({
         id: `imported-word-${card.id}`,
+        sourceCardId: card.id,
         term: card.front,
         en: card.back,
         isCustom: true,
         language: 'pt',
+        photo: card.photo,
+        seenCount: card.seenCount ?? 0,
+        wrongCount: card.wrongCount ?? 0,
+        photoPromptDismissed: card.photoPromptDismissed ?? false,
       }));
     setCards(nextWords);
     setLoading(false);

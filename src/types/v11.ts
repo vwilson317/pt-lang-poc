@@ -8,6 +8,12 @@ export type Deck = {
 
 export type CardType = 'word' | 'sentence' | 'phrase';
 
+export type CardPhotoHint = {
+  uri: string;
+  ext: string;
+  addedAt: number;
+};
+
 export type FlashCardRecord = {
   id: string;
   deckId: string;
@@ -18,6 +24,10 @@ export type FlashCardRecord = {
   wordType?: string;
   sourceClipId?: string;
   sourceSegmentId?: string;
+  photo?: CardPhotoHint;
+  seenCount?: number;
+  wrongCount?: number;
+  photoPromptDismissed?: boolean;
   createdAt: number;
 };
 

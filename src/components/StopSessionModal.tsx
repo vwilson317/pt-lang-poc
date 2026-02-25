@@ -19,8 +19,8 @@ export function StopSessionModal({
 }: StopSessionModalProps) {
   const hasMissedWords = uniqueMissCount > 0;
   const exportSummary = hasMissedWords
-    ? `${uniqueMissCount} skipped/wrong word${uniqueMissCount === 1 ? '' : 's'} will be copied to your clipboard.`
-    : 'No skipped or wrong words to export from this session.';
+    ? `${uniqueMissCount} missed/unknown word${uniqueMissCount === 1 ? '' : 's'} will be copied to your clipboard.`
+    : 'No missed or unknown words to export from this session.';
 
   return (
     <Modal

@@ -50,7 +50,7 @@ export function CompletionModal({
                 <View style={styles.exportButtonContent}>
                   <FontAwesome5 name="copy" size={14} color={theme.textPrimary} solid />
                   <Text style={styles.exportText}>
-                    Export missed + skipped words ({uniqueMissCount})
+                    Export missed + unknown words ({uniqueMissCount})
                   </Text>
                 </View>
               </TouchableOpacity>

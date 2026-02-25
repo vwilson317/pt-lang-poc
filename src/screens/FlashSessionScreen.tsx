@@ -10,6 +10,8 @@ import {
   Alert,
   Platform,
   ToastAndroid,
+  Modal,
+  Image,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
@@ -33,6 +35,7 @@ import {
   getDecks,
   getSelectedDeckId,
   setSelectedDeck,
+  updateWordCardProgress,
 } from '../lib/v11Storage';
 import {
   getBestClearMs,
@@ -54,7 +57,13 @@ import {
 import { playWordAudio, stopWordAudio } from '../lib/audio';
 import { trackEvent } from '../lib/analytics';
 import { theme } from '../theme';
-import type { Deck, FlashCardRecord } from '../types/v11';
+import type { CardPhotoHint, Deck, FlashCardRecord } from '../types/v11';
+import {
+  deleteStoredPhotoHint,
+  pickAndStorePhotoHint,
+  releasePhotoHintDisplayUri,
+  resolvePhotoHintDisplayUri,
+} from '../lib/photoHintStorage';
 
 const bgImage = require('../../v1/bg.png');
 
@@ -81,6 +90,14 @@ type MissedWordExportItem = {
   skipped: number;
   incorrect: number;
   misses: number;
+};
+
+type WordHintState = {
+  sourceCardId?: string;
+  seenCount: number;
+  wrongCount: number;
+  photo?: CardPhotoHint;
+  photoPromptDismissed: boolean;
 };
 
 function normalizeWordToken(value: string): string {
@@ -346,6 +363,10 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const [practiceLanguage, setPracticeLanguage] = React.useState<PracticeLanguage>('pt');
   const [showSchedulerDebug, setShowSchedulerDebug] = React.useState(false);
   const [typedAnswer, setTypedAnswer] = React.useState('');
+  const [wordHintById, setWordHintById] = React.useState<Record<string, WordHintState>>({});
+  const [photoLightboxVisible, setPhotoLightboxVisible] = React.useState(false);
+  const [photoLightboxUri, setPhotoLightboxUri] = React.useState<string | null>(null);
+  const [photoLightboxLoading, setPhotoLightboxLoading] = React.useState(false);
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const lastClearedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -356,6 +377,8 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const hasHydratedLanguageRef = useRef(false);
   const presetSessionStartedRef = useRef(false);
   const lastRestartSessionKeyRef = useRef<string | undefined>(undefined);
+  const previousUiStateRef = useRef<string | null>(null);
+  const previousCardIdRef = useRef<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -507,6 +530,81 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     restartSessionKey,
     startSession,
   ]);
+
+  useEffect(() => {
+    if (!hasPresetWords) {
+      setWordHintById({});
+      return;
+    }
+    const next: Record<string, WordHintState> = {};
+    for (const word of presetWords) {
+      if (!word.sourceCardId) continue;
+      next[word.id] = {
+        sourceCardId: word.sourceCardId,
+        seenCount: word.seenCount ?? 0,
+        wrongCount: word.wrongCount ?? 0,
+        photo: word.photo,
+        photoPromptDismissed: word.photoPromptDismissed ?? false,
+      };
+    }
+    setWordHintById(next);
+  }, [hasPresetWords, presetWords]);
+
+  const currentWordHint = React.useMemo<WordHintState | null>(() => {
+    if (!currentWord?.sourceCardId) return null;
+    const override = wordHintById[currentWord.id];
+    return {
+      sourceCardId: override?.sourceCardId ?? currentWord.sourceCardId,
+      seenCount: override?.seenCount ?? currentWord.seenCount ?? 0,
+      wrongCount: override?.wrongCount ?? currentWord.wrongCount ?? 0,
+      photo: override?.photo ?? currentWord.photo,
+      photoPromptDismissed:
+        override?.photoPromptDismissed ?? currentWord.photoPromptDismissed ?? false,
+    };
+  }, [currentWord, wordHintById]);
+
+  const currentWordWithHint = React.useMemo<Word | null>(() => {
+    if (!currentWord || !currentWordHint) return currentWord;
+    return {
+      ...currentWord,
+      seenCount: currentWordHint.seenCount,
+      wrongCount: currentWordHint.wrongCount,
+      photo: currentWordHint.photo,
+      photoPromptDismissed: currentWordHint.photoPromptDismissed,
+    };
+  }, [currentWord, currentWordHint]);
+
+  const patchCurrentWordHint = useCallback(
+    (patch: {
+      seenCount?: number;
+      wrongCount?: number;
+      photoPromptDismissed?: boolean;
+      photo?: CardPhotoHint | null;
+    }) => {
+      if (!currentWord?.id || !currentWordHint?.sourceCardId) return;
+      const next: WordHintState = {
+        ...currentWordHint,
+      };
+      if (patch.seenCount != null) next.seenCount = Math.max(0, patch.seenCount);
+      if (patch.wrongCount != null) next.wrongCount = Math.max(0, patch.wrongCount);
+      if (patch.photoPromptDismissed != null) next.photoPromptDismissed = patch.photoPromptDismissed;
+      if (patch.photo !== undefined) {
+        if (patch.photo === null) {
+          delete next.photo;
+        } else {
+          next.photo = patch.photo;
+        }
+      }
+      setWordHintById((prev) => ({ ...prev, [currentWord.id]: next }));
+      void updateWordCardProgress(currentWordHint.sourceCardId, {
+        seenCount: patch.seenCount,
+        wrongCount: patch.wrongCount,
+        photoPromptDismissed: patch.photoPromptDismissed,
+        photo: patch.photo,
+      });
+    },
+    [currentWord?.id, currentWordHint]
+  );
 
   const handleAddCustomWords = useCallback(async () => {
     const parsedEntries = parseCustomWordInput(customInput);
@@ -713,6 +811,95 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     setShowGestureDemo(true);
   }, [currentWord?.id, state?.uiState]);
 
+  const showNativeCopyToast = useCallback((message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    }
+    setToastMessage(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2200);
+  }, []);
+
+  const showPhotoPromptCta = Boolean(
+    state?.uiState === 'FEEDBACK_WRONG' &&
+      currentWordHint &&
+      currentWordHint.seenCount >= 2 &&
+      !currentWordHint.photo &&
+      !currentWordHint.photoPromptDismissed
+  );
+
+  const closePhotoLightbox = useCallback(() => {
+    releasePhotoHintDisplayUri(photoLightboxUri);
+    setPhotoLightboxUri(null);
+    setPhotoLightboxVisible(false);
+    setPhotoLightboxLoading(false);
+  }, [photoLightboxUri]);
+
+  const handleOpenPhotoHint = useCallback(() => {
+    if (!currentWordHint?.photo) return;
+    setPhotoLightboxVisible(true);
+    setPhotoLightboxLoading(true);
+    void resolvePhotoHintDisplayUri(currentWordHint.photo)
+      .then((resolvedUri) => {
+        setPhotoLightboxUri((previous) => {
+          if (previous && previous !== resolvedUri) {
+            releasePhotoHintDisplayUri(previous);
+          }
+          return resolvedUri;
+        });
+      })
+      .finally(() => {
+        setPhotoLightboxLoading(false);
+      });
+  }, [currentWordHint?.photo]);
+
+  const handleAddPhotoHint = useCallback(() => {
+    if (!currentWord?.id) return;
+    void pickAndStorePhotoHint(currentWord.sourceCardId ?? currentWord.id).then(async (photo) => {
+      if (!photo) return;
+      if (currentWordHint?.photo) {
+        await deleteStoredPhotoHint(currentWordHint.photo);
+      }
+      patchCurrentWordHint({
+        photo,
+        photoPromptDismissed: true,
+      });
+      showNativeCopyToast('Image hint added');
+    });
+  }, [currentWord, currentWordHint?.photo, patchCurrentWordHint, showNativeCopyToast]);
+
+  const handleDismissPhotoPrompt = useCallback(() => {
+    patchCurrentWordHint({ photoPromptDismissed: true });
+  }, [patchCurrentWordHint]);
+
+  const handleReplacePhotoHint = useCallback(() => {
+    if (!currentWord?.id || !currentWordHint?.photo) return;
+    void pickAndStorePhotoHint(currentWord.sourceCardId ?? currentWord.id).then(async (nextPhoto) => {
+      if (!nextPhoto) return;
+      await deleteStoredPhotoHint(currentWordHint.photo);
+      patchCurrentWordHint({
+        photo: nextPhoto,
+        photoPromptDismissed: true,
+      });
+      closePhotoLightbox();
+      showNativeCopyToast('Image hint replaced');
+    });
+  }, [closePhotoLightbox, currentWord, currentWordHint?.photo, patchCurrentWordHint, showNativeCopyToast]);
+
+  const handleRemovePhotoHint = useCallback(() => {
+    if (!currentWordHint?.photo) return;
+    void deleteStoredPhotoHint(currentWordHint.photo).finally(() => {
+      patchCurrentWordHint({
+        photo: null,
+        photoPromptDismissed: true,
+      });
+      closePhotoLightbox();
+      showNativeCopyToast('Image hint removed');
+    });
+  }, [closePhotoLightbox, currentWordHint?.photo, patchCurrentWordHint, showNativeCopyToast]);
+
   const globalSwipeUpGesture = Gesture.Pan()
     .enabled(Boolean(state && state.uiState === 'PROMPT' && !state.cleared && !stopModalVisible && !showGestureDemo))
     .activeOffsetX([-40, 40])
@@ -751,8 +938,17 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     ) {
       lastRecordedIncorrectIdRef.current = state.currentCardId;
       recordSessionIncorrect(state.currentCardId);
+      if (currentWordHint) {
+        patchCurrentWordHint({ wrongCount: currentWordHint.wrongCount + 1 });
+      }
     }
-  }, [recordSessionIncorrect, state?.uiState, state?.currentCardId]);
+  }, [
+    currentWordHint,
+    patchCurrentWordHint,
+    recordSessionIncorrect,
+    state?.uiState,
+    state?.currentCardId,
+  ]);
 
   useEffect(() => {
     if (state?.uiState === 'PROMPT') {
@@ -763,6 +959,20 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   useEffect(() => {
     setTypedAnswer('');
   }, [state?.currentCardId, state?.uiState]);
+
+  useEffect(() => {
+    const nextUiState = state?.uiState ?? null;
+    const nextCardId = state?.currentCardId ?? null;
+    if (
+      nextUiState === 'PROMPT' &&
+      currentWordHint &&
+      (previousUiStateRef.current !== 'PROMPT' || previousCardIdRef.current !== nextCardId)
+    ) {
+      patchCurrentWordHint({ seenCount: currentWordHint.seenCount + 1 });
+    }
+    previousUiStateRef.current = nextUiState;
+    previousCardIdRef.current = nextCardId;
+  }, [currentWordHint, patchCurrentWordHint, state?.currentCardId, state?.uiState]);
 
   // Auto-play by default on every prompt card using persisted playback rate.
   useEffect(() => {
@@ -867,17 +1077,6 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const customEditorBottomOffset =
     Math.max(insets.bottom || 0, 10) + (state && !state.cleared && !stopModalVisible ? 90 : 18);
 
-  const showNativeCopyToast = useCallback((message: string) => {
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(message, ToastAndroid.SHORT);
-    }
-    setToastMessage(message);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => {
-      setToastMessage(null);
-    }, 2200);
-  }, []);
-
   const copyMissedWordsToClipboard = useCallback(async () => {
     const exportText = buildMissedWordsListExport(missedWordExportItems);
     await Clipboard.setStringAsync(exportText);
@@ -918,6 +1117,12 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      releasePhotoHintDisplayUri(photoLightboxUri);
+    };
+  }, [photoLightboxUri]);
 
   useEffect(() => {
     if (state?.cleared) {
@@ -1192,7 +1397,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         )}
         <View style={styles.content}>
           <FlashCard
-            word={currentWord}
+            word={currentWordWithHint}
             uiState={state.uiState}
             choiceOptions={state.choiceOptions}
             correctChoiceIndex={state.correctChoiceIndex}
@@ -1211,6 +1416,11 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             disabled={state.cleared || stopModalVisible || showGestureDemo}
             onOpenInfo={handleOpenInfo}
             onOpenAdd={handleToggleCustomEditor}
+            showPhotoPromptCta={showPhotoPromptCta}
+            onAddPhotoHint={handleAddPhotoHint}
+            onDismissPhotoPrompt={handleDismissPhotoPrompt}
+            showPhotoHintLink={Boolean(state.uiState !== 'PROMPT' && currentWordHint?.photo)}
+            onOpenPhotoHint={handleOpenPhotoHint}
           />
         </View>
         {customEditorOverlay}
@@ -1247,6 +1457,41 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         onResume={handleResumeSession}
         onStopAndCopy={handleStopAndCopy}
         />
+      <Modal
+        visible={photoLightboxVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closePhotoLightbox}
+      >
+        <View style={styles.photoModalBackdrop}>
+          <View style={styles.photoModalTopRow}>
+            <Pressable style={styles.photoModalClose} onPress={closePhotoLightbox}>
+              <Text style={styles.photoModalCloseLabel}>✕</Text>
+            </Pressable>
+          </View>
+          <View style={styles.photoModalImageWrap}>
+            {photoLightboxLoading ? (
+              <Text style={styles.photoModalLoading}>Loading image…</Text>
+            ) : photoLightboxUri ? (
+              <Image
+                source={{ uri: photoLightboxUri }}
+                resizeMode="contain"
+                style={styles.photoModalImage}
+              />
+            ) : (
+              <Text style={styles.photoModalLoading}>Image unavailable</Text>
+            )}
+          </View>
+          <View style={[styles.photoModalActions, { paddingBottom: (insets.bottom || 0) + 16 }]}>
+            <Pressable style={styles.photoModalActionPrimary} onPress={handleReplacePhotoHint}>
+              <Text style={styles.photoModalActionPrimaryLabel}>Replace image</Text>
+            </Pressable>
+            <Pressable style={styles.photoModalActionSecondary} onPress={handleRemovePhotoHint}>
+              <Text style={styles.photoModalActionSecondaryLabel}>Remove image</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       {toastMessage && (
           <View pointerEvents="none" style={[styles.webToastWrap, { bottom: toastBottomOffset }]}>
             <View style={styles.webToast}>
@@ -1604,6 +1849,82 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: theme.textPrimary,
+  },
+  photoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(8, 8, 12, 0.94)',
+  },
+  photoModalTopRow: {
+    paddingTop: 48,
+    paddingHorizontal: 16,
+    alignItems: 'flex-end',
+  },
+  photoModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.34)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  photoModalCloseLabel: {
+    color: theme.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  photoModalImageWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  photoModalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoModalLoading: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  photoModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  photoModalActionPrimary: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: theme.selectedBorder,
+    backgroundColor: theme.selectedBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoModalActionPrimaryLabel: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  photoModalActionSecondary: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.34)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoModalActionSecondaryLabel: {
+    color: theme.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   webToastWrap: {
     position: 'absolute',
