@@ -140,7 +140,7 @@ function parseStructuredCustomLine(cleanedLine: string): ParsedCustomEntry | nul
   const cleaned = cleanedLine.trim();
   if (!cleaned) return null;
 
-  const colonOrEqualsMatch = cleaned.match(/^(.+?)\s*[:=]\s*(.+)$/);
+  const colonOrEqualsMatch = cleaned.match(/^(.+?)\s*[:=：]\s*(.+)$/);
   if (colonOrEqualsMatch) {
     const term = normalizeWordToken(colonOrEqualsMatch[1]);
     if (!term) return null;
@@ -238,40 +238,20 @@ function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
     }
 
     const tokens = cleanedLine.match(/[^\s,;]+/g) ?? [];
-    for (let i = 0; i < tokens.length; i += 1) {
-      const token = tokens[i];
-      if (token === ':' || token === '=' || token === '-' || token === '–' || token === '—') {
-        continue;
+    const shouldSplitAsWordList =
+      tokens.length > 1 &&
+      tokens.length <= 6 &&
+      tokens.every((token) => /^[\p{L}\p{N}'’-]+$/u.test(token));
+
+    if (shouldSplitAsWordList) {
+      for (const token of tokens) {
+        pushEntry({ term: token });
       }
-
-      let termToken = token;
-      let enToken: string | undefined;
-
-      const inlineSep = token.match(/^(.+?)([:=])(.*)$/);
-      if (inlineSep) {
-        termToken = inlineSep[1];
-        enToken = normalizeDefinitionToken(inlineSep[3]);
-        if (
-          !enToken &&
-          tokens[i + 1] &&
-          ![':', '=', '-', '–', '—'].includes(tokens[i + 1])
-        ) {
-          enToken = normalizeDefinitionToken(tokens[i + 1]);
-          i += 1;
-        }
-      } else if ((tokens[i + 1] === ':' || tokens[i + 1] === '=') && tokens[i + 2]) {
-        enToken = normalizeDefinitionToken(tokens[i + 2]);
-        i += 2;
-      } else if (
-        (tokens[i + 1] === '-' || tokens[i + 1] === '–' || tokens[i + 1] === '—') &&
-        tokens[i + 2]
-      ) {
-        enToken = normalizeDefinitionToken(tokens[i + 2]);
-        i += 2;
-      }
-
-      pushEntry({ term: termToken, en: enToken });
+      continue;
     }
+
+    // Treat unmatched lines as a single term/phrase to avoid runaway token expansion.
+    pushEntry({ term: cleanedLine });
   }
 
   return parsed;
@@ -353,6 +333,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const [importDeckMode, setImportDeckMode] = React.useState<ImportDeckMode>('existing');
   const [importDeckId, setImportDeckId] = React.useState<string>('default');
   const [newDeckName, setNewDeckName] = React.useState('');
+  const [isImporting, setIsImporting] = React.useState(false);
   const [modalDismissed, setModalDismissed] = React.useState(false);
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
   const [skippedCountsById, setSkippedCountsById] = React.useState<Record<string, number>>({});
@@ -606,91 +587,120 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     [currentWord?.id, currentWordHint]
   );
 
+  const showNativeCopyToast = useCallback((message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    }
+    setToastMessage(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2200);
+  }, []);
+
   const handleAddCustomWords = useCallback(async () => {
-    const parsedEntries = parseCustomWordInput(customInput);
-    if (parsedEntries.length === 0) {
-      setCustomFeedback(null);
-      setCustomError('Enter at least one word.');
-      return;
-    }
-    const existingPt = new Set(
-      customWords.map((word) => word.term.trim().toLocaleLowerCase())
-    );
-    const customSeed = Date.now();
-    const additions: Word[] = [];
-    for (let index = 0; index < parsedEntries.length; index += 1) {
-      const entry = parsedEntries[index];
-      const key = entry.term.toLocaleLowerCase();
-      if (existingPt.has(key)) continue;
-      existingPt.add(key);
-      const resolvedDefinition = await resolveDefinitionForCustomWord(
-        entry.term,
-        entry.en
-      );
-      additions.push({
-        id: `custom-${customSeed}-${index}`,
-        term: entry.term,
-        en: resolvedDefinition,
-        isCustom: true,
-        language: practiceLanguage,
-      });
-    }
-    if (additions.length === 0) {
-      setCustomFeedback(null);
-      setCustomError('Those words are already in your custom cards.');
-      return;
-    }
-    let targetDeckId = importDeckId;
-    let targetDeckLabel = availableDecks.find((deck) => deck.id === importDeckId)?.name ?? 'selected deck';
-    if (importDeckMode === 'new') {
-      const trimmed = newDeckName.trim();
-      if (!trimmed) {
+    if (isImporting) return;
+    setIsImporting(true);
+    try {
+      const parsedEntries = parseCustomWordInput(customInput);
+      if (parsedEntries.length === 0) {
+        const message = 'No importable lines found. Use "word : translation" format.';
         setCustomFeedback(null);
-        setCustomError('Enter a name for the new deck.');
+        setCustomError(message);
+        showNativeCopyToast(message);
         return;
       }
-      const createdDeck = await createDeck(trimmed);
-      await setSelectedDeck(createdDeck.id);
-      targetDeckId = createdDeck.id;
-      targetDeckLabel = createdDeck.name;
+      const existingPt = new Set(
+        customWords.map((word) => word.term.trim().toLocaleLowerCase())
+      );
+      const customSeed = Date.now();
+      const additions: Word[] = [];
+      for (let index = 0; index < parsedEntries.length; index += 1) {
+        const entry = parsedEntries[index];
+        const key = entry.term.toLocaleLowerCase();
+        if (existingPt.has(key)) continue;
+        existingPt.add(key);
+        const resolvedDefinition = await resolveDefinitionForCustomWord(
+          entry.term,
+          entry.en
+        );
+        additions.push({
+          id: `custom-${customSeed}-${index}`,
+          term: entry.term,
+          en: resolvedDefinition,
+          isCustom: true,
+          language: practiceLanguage,
+        });
+      }
+      if (additions.length === 0) {
+        const message = 'Those words are already in your custom cards.';
+        setCustomFeedback(null);
+        setCustomError(message);
+        showNativeCopyToast(message);
+        return;
+      }
+      let targetDeckId = importDeckId;
+      let targetDeckLabel = availableDecks.find((deck) => deck.id === importDeckId)?.name ?? 'selected deck';
+      if (importDeckMode === 'new') {
+        const trimmed = newDeckName.trim();
+        if (!trimmed) {
+          const message = 'Enter a name for the new deck.';
+          setCustomFeedback(null);
+          setCustomError(message);
+          showNativeCopyToast(message);
+          return;
+        }
+        const createdDeck = await createDeck(trimmed);
+        await setSelectedDeck(createdDeck.id);
+        targetDeckId = createdDeck.id;
+        targetDeckLabel = createdDeck.name;
+      }
+      const nextCustomWords = [...customWords, ...additions];
+      setCustomWords(nextCustomWords);
+      await saveCustomWords(nextCustomWords, practiceLanguage);
+      const importSeed = Date.now();
+      const importedCards: FlashCardRecord[] = [];
+      for (let index = 0; index < additions.length; index += 1) {
+        const word = additions[index];
+        const slug = sanitizeWordSlug(word.term);
+        if (!slug) continue;
+        importedCards.push({
+          id: `word-${targetDeckId}-${slug}`,
+          deckId: targetDeckId,
+          cardType: 'word',
+          front: word.term,
+          back: normalizeDefinitionToken(word.en) ?? word.term,
+          createdAt: importSeed + index,
+        });
+      }
+      await addCards(importedCards);
+      if (customEditorSource === 'start_screen' && customInputSource === 'clipboard_prefill') {
+        void trackEvent('clipboard_start_screen_cards_added', {
+          language: practiceLanguage,
+          added_count: additions.length,
+          parsed_count: parsedEntries.length,
+          deck_mode: importDeckMode,
+        });
+      }
+      await refreshDeckTargets();
+      setCustomInput('');
+      setNewDeckName('');
+      setImportDeckMode('existing');
+      setCustomInputSource('manual');
+      setCustomError(null);
+      setShowCustomEditor(false);
+      const message =
+        `Imported ${additions.length} word${additions.length === 1 ? '' : 's'} to ${targetDeckLabel}.`;
+      setCustomFeedback(message);
+      showNativeCopyToast(message);
+    } catch {
+      const message = 'Import failed. Please try again.';
+      setCustomFeedback(null);
+      setCustomError(message);
+      showNativeCopyToast(message);
+    } finally {
+      setIsImporting(false);
     }
-    const nextCustomWords = [...customWords, ...additions];
-    setCustomWords(nextCustomWords);
-    await saveCustomWords(nextCustomWords, practiceLanguage);
-    const importSeed = Date.now();
-    const importedCards: FlashCardRecord[] = [];
-    for (let index = 0; index < additions.length; index += 1) {
-      const word = additions[index];
-      const slug = sanitizeWordSlug(word.term);
-      if (!slug) continue;
-      importedCards.push({
-        id: `word-${targetDeckId}-${slug}`,
-        deckId: targetDeckId,
-        cardType: 'word',
-        front: word.term,
-        back: normalizeDefinitionToken(word.en) ?? word.term,
-        createdAt: importSeed + index,
-      });
-    }
-    await addCards(importedCards);
-    if (customEditorSource === 'start_screen' && customInputSource === 'clipboard_prefill') {
-      void trackEvent('clipboard_start_screen_cards_added', {
-        language: practiceLanguage,
-        added_count: additions.length,
-        parsed_count: parsedEntries.length,
-        deck_mode: importDeckMode,
-      });
-    }
-    await refreshDeckTargets();
-    setCustomInput('');
-    setNewDeckName('');
-    setImportDeckMode('existing');
-    setCustomInputSource('manual');
-    setCustomError(null);
-    setShowCustomEditor(false);
-    setCustomFeedback(
-      `Imported ${additions.length} word${additions.length === 1 ? '' : 's'} to ${targetDeckLabel}.`
-    );
   }, [
     availableDecks,
     customInput,
@@ -700,8 +710,10 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     newDeckName,
     customEditorSource,
     customInputSource,
+    isImporting,
     practiceLanguage,
     refreshDeckTargets,
+    showNativeCopyToast,
   ]);
 
   const handleClearCustomCards = useCallback(async () => {
@@ -731,7 +743,13 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         const prefilledInput = stringifyParsedCustomInput(
           parseCustomWordInput(clipboardText)
         );
-        if (!prefilledInput) return;
+        if (!prefilledInput) {
+          const message = 'Clipboard has no importable lines.';
+          setCustomFeedback(null);
+          setCustomError(message);
+          showNativeCopyToast(message);
+          return;
+        }
         setCustomInput(prefilledInput);
         setCustomInputSource('clipboard_prefill');
         setCustomFeedback(null);
@@ -740,7 +758,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         // ignore clipboard failures
       }
     })();
-  }, [practiceLanguage, refreshDeckTargets, showCustomEditor, state]);
+  }, [practiceLanguage, refreshDeckTargets, showCustomEditor, showNativeCopyToast, state]);
 
   const recordSessionSkip = useCallback((wordId: string) => {
     setSkippedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
@@ -810,17 +828,6 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     });
     setShowGestureDemo(true);
   }, [currentWord?.id, state?.uiState]);
-
-  const showNativeCopyToast = useCallback((message: string) => {
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(message, ToastAndroid.SHORT);
-    }
-    setToastMessage(message);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => {
-      setToastMessage(null);
-    }, 2200);
-  }, []);
 
   const showPhotoPromptCta = Boolean(
     state?.uiState === 'FEEDBACK_WRONG' &&
@@ -1082,7 +1089,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     await Clipboard.setStringAsync(exportText);
     const toastMessage =
       uniqueMissCount > 0
-        ? `Copied ${uniqueMissCount} skipped/wrong words to clipboard`
+        ? `Copied ${uniqueMissCount} missed/unknown words to clipboard`
         : 'Copied to clipboard';
     showNativeCopyToast(toastMessage);
   }, [missedWordExportItems, showNativeCopyToast, uniqueMissCount]);
@@ -1170,13 +1177,17 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         <Pressable
           style={({ pressed }) => [
             styles.customSaveButton,
+            isImporting && styles.startButtonDisabled,
             pressed && styles.customSaveButtonPressed,
           ]}
           onPress={() => {
             void handleAddCustomWords();
           }}
+          disabled={isImporting}
         >
-          <Text style={styles.customSaveButtonLabel}>Import collection</Text>
+          <Text style={styles.customSaveButtonLabel}>
+            {isImporting ? 'Importing...' : 'Import collection'}
+          </Text>
         </Pressable>
         {customWords.length > 0 && (
           <Pressable
@@ -1187,6 +1198,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             onPress={() => {
               void handleClearCustomCards();
             }}
+            disabled={isImporting}
           >
             <Text style={styles.customClearButtonLabel}>Clear all</Text>
           </Pressable>

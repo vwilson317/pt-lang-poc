@@ -118,11 +118,13 @@ export async function pickAndStorePhotoHint(cardId: string): Promise<CardPhotoHi
 
   if (Platform.OS === 'web') {
     const key = cardPhotoFileName(cardId, ext);
-    const blobCandidate = asset.file ?? (await fetch(asset.uri).then((response) => response.blob()));
-    if (!(blobCandidate instanceof Blob)) {
-      throw new Error('Could not read selected image blob.');
+    let blob: Blob;
+    if (asset.file) {
+      blob = asset.file;
+    } else {
+      const response = await fetch(asset.uri);
+      blob = await response.blob();
     }
-    const blob = blobCandidate;
     await putBlob(key, blob);
     return {
       uri: idbUriFromKey(key),
