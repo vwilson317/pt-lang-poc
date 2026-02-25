@@ -25,6 +25,7 @@ export function WordCardPracticeScreen({ sourceClipId, onBack }: Props) {
         sourceCardId: card.id,
         term: card.front,
         en: card.back,
+        pronHintEn: card.pronHintEn,
         isCustom: true,
         language: 'pt',
         photo: card.photo,
