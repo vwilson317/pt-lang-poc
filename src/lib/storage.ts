@@ -3,6 +3,7 @@ import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
 import { isPracticeLanguage } from '../types/practiceLanguage';
 import type { CardSchedule } from './spacedRepetition';
+import type { AiBuilderConfig } from './aiPromptBuilder';
 
 const KEY_BEST_CLEAR_MS = 'bestClearMs';
 const KEY_RUNS_COUNT = 'runsCount';
@@ -13,6 +14,7 @@ const KEY_CUSTOM_WORDS_LEGACY = 'customWords';
 const KEY_SPACED_REPETITION_PREFIX = 'spacedRepetition:v1:';
 const KEY_KNOWN_WORDS_PREFIX = 'knownWords:v1:';
 const KEY_ACTIVE_PRACTICE_SESSION = 'activePracticeSession';
+const KEY_AI_BUILDER_CONFIG = 'aiBuilderConfig:v1';
 
 export async function getBestClearMs(): Promise<number | null> {
   const raw = await AsyncStorage.getItem(KEY_BEST_CLEAR_MS);
@@ -86,6 +88,22 @@ export async function getHasActivePracticeSession(): Promise<boolean> {
 
 export async function setHasActivePracticeSession(active: boolean): Promise<void> {
   await AsyncStorage.setItem(KEY_ACTIVE_PRACTICE_SESSION, active ? 'true' : 'false');
+}
+
+export async function getAiBuilderConfig(): Promise<AiBuilderConfig | null> {
+  const raw = await AsyncStorage.getItem(KEY_AI_BUILDER_CONFIG);
+  if (raw == null) return null;
+  try {
+    const parsed = JSON.parse(raw) as AiBuilderConfig;
+    if (parsed == null || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function setAiBuilderConfig(config: AiBuilderConfig): Promise<void> {
+  await AsyncStorage.setItem(KEY_AI_BUILDER_CONFIG, JSON.stringify(config));
 }
 
 export async function getCustomWords(language: PracticeLanguage = 'pt'): Promise<Word[]> {

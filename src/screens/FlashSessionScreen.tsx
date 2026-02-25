@@ -53,10 +53,13 @@ import {
   getHasSeenGestureDemo,
   setHasSeenGestureDemo,
   setHasActivePracticeSession,
+  getAiBuilderConfig,
+  setAiBuilderConfig,
 } from '../lib/storage';
 import { playWordAudio, stopWordAudio } from '../lib/audio';
 import { trackEvent } from '../lib/analytics';
 import { theme } from '../theme';
+import { buildAiPrompt, createDefaultAiBuilderConfig, type AiBuilderConfig } from '../lib/aiPromptBuilder';
 import type { CardPhotoHint, Deck, FlashCardRecord } from '../types/v11';
 import {
   deleteStoredPhotoHint,
@@ -72,6 +75,13 @@ const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 const SWIPE_UP_THRESHOLD = 90;
 const WEB_INPUT_FONT_SIZE = Platform.OS === 'web' ? 16 : 14;
+
+
+const AI_THEME_OPTIONS = ['at the gym', 'while traveling', 'for dating', 'at work', 'for small talk'];
+const AI_NATIVE_LANGUAGE_OPTIONS = ['English', 'Português', 'Français', 'Español'];
+const AI_TONE_OPTIONS: Array<AiBuilderConfig['tone']> = ['casual', 'neutral', 'formal', 'flirty', 'business'];
+const AI_DIFFICULTY_OPTIONS: Array<AiBuilderConfig['difficulty']> = ['easy', 'standard', 'stretch'];
+const AI_MIX_OPTIONS: Array<AiBuilderConfig['mix']> = ['balanced', 'vocabulary_heavy', 'conversation_heavy'];
 
 type ParsedCustomEntry = {
   term: string;
@@ -365,6 +375,10 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const [practiceLanguage, setPracticeLanguage] = React.useState<PracticeLanguage>('pt');
   const [showSchedulerDebug, setShowSchedulerDebug] = React.useState(false);
   const [typedAnswer, setTypedAnswer] = React.useState('');
+  const [aiBuilderConfig, setAiBuilderConfigState] = React.useState<AiBuilderConfig>(() =>
+    createDefaultAiBuilderConfig('pt')
+  );
+  const [showAiBuilder, setShowAiBuilder] = React.useState(false);
   const [wordHintById, setWordHintById] = React.useState<Record<string, WordHintState>>({});
   const [photoLightboxVisible, setPhotoLightboxVisible] = React.useState(false);
   const [photoLightboxUri, setPhotoLightboxUri] = React.useState<string | null>(null);
@@ -398,6 +412,11 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           if (cancelled) return;
           setIncludeDefaultWords(shouldIncludeDefaultWords);
           setCustomWords(words);
+          const savedAiConfig = await getAiBuilderConfig();
+          setAiBuilderConfigState((prev) => ({
+            ...(savedAiConfig ?? prev),
+            targetLanguage: language,
+          }));
           if (didLanguageChange) {
             setModalDismissed(false);
             setStopModalVisible(false);
@@ -499,6 +518,10 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       void setHasActivePracticeSession(false);
     };
   }, []);
+
+  useEffect(() => {
+    void setAiBuilderConfig(aiBuilderConfig);
+  }, [aiBuilderConfig]);
 
   const refreshDeckTargets = useCallback(async () => {
     const [decks, selectedDeckId] = await Promise.all([getDecks(), getSelectedDeckId()]);
@@ -1192,6 +1215,35 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   }, [state?.cleared]);
 
 
+  const aiSessionMode: 'words' | 'phrases' = hasPresetWords ? 'phrases' : 'words';
+  const aiDerived = React.useMemo(
+    () => buildAiPrompt(Math.round(cardCount), aiBuilderConfig, aiSessionMode),
+    [aiBuilderConfig, aiSessionMode, cardCount]
+  );
+
+  const updateAiBuilder = useCallback((next: Partial<AiBuilderConfig>) => {
+    setAiBuilderConfigState((prev) => ({ ...prev, ...next, touched: true }));
+  }, []);
+
+  const handleToggleTheme = useCallback((themeLabel: string) => {
+    setAiBuilderConfigState((prev) => {
+      const exists = prev.themes.includes(themeLabel);
+      const themes = exists
+        ? prev.themes.filter((value) => value !== themeLabel)
+        : [...prev.themes, themeLabel].slice(0, 3);
+      return { ...prev, themes, touched: true };
+    });
+  }, []);
+
+  const handleCopyAiPrompt = useCallback(async () => {
+    try {
+      await Clipboard.setStringAsync(aiDerived.compiledPrompt);
+      showNativeCopyToast('Full AI prompt copied');
+    } catch {
+      Alert.alert('Copy failed', 'Could not copy the AI prompt to your clipboard.');
+    }
+  }, [aiDerived.compiledPrompt, showNativeCopyToast]);
+
   const customEditorOverlay = showCustomEditor && (
     <View style={[styles.customEditorSheet, { bottom: customEditorBottomOffset }]}>
       <View style={styles.customEditorHeader}>
@@ -1413,6 +1465,30 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           </Pressable>
           <Pressable
             style={({ pressed }) => [
+              styles.aiInlineCard,
+              pressed && styles.aiInlineCardPressed,
+            ]}
+            onPress={() => setShowAiBuilder(true)}
+          >
+            <View style={styles.aiInlineHeaderRow}>
+              <Text style={styles.aiInlineLabel}>Custom AI Deck (optional)</Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.aiCopyButton,
+                  !aiDerived.copyEnabled && styles.aiCopyButtonDisabled,
+                  pressed && aiDerived.copyEnabled && styles.aiCopyButtonPressed,
+                ]}
+                onPress={handleCopyAiPrompt}
+                disabled={!aiDerived.copyEnabled}
+              >
+                <Text style={styles.aiCopyButtonLabel}>Copy</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.aiInlinePreview}>{aiDerived.preview}</Text>
+            <Text style={styles.aiInlineFooter}>🔒 Optimized format for import</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
               styles.startSecondaryButton,
               pressed && styles.startSecondaryButtonPressed,
             ]}
@@ -1435,6 +1511,84 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             </View>
           </View>
         )}
+        <Modal visible={showAiBuilder} animationType="slide" onRequestClose={() => setShowAiBuilder(false)}>
+          <View style={styles.aiBuilderModal}>
+            <View style={[styles.aiBuilderTopBar, { paddingTop: (insets.top || 0) + 6 }]}>
+              <Pressable style={styles.aiTopBarButton} onPress={() => setShowAiBuilder(false)}>
+                <Text style={styles.aiTopBarButtonLabel}>← Back</Text>
+              </Pressable>
+              <Text style={styles.aiBuilderTitle}>Build AI Deck</Text>
+              <Pressable style={styles.aiTopBarButton} onPress={() => setShowAiBuilder(false)}>
+                <Text style={styles.aiTopBarButtonLabel}>Save</Text>
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={[styles.aiBuilderContent, { paddingBottom: (insets.bottom || 0) + 24 }]}>
+              <Text style={styles.aiSectionTitle}>Intent</Text>
+              <TextInput
+                style={styles.aiIntentInput}
+                value={aiBuilderConfig.intent ?? ''}
+                onChangeText={(value) => updateAiBuilder({ intent: value })}
+                placeholder="What situations do you want to practice?"
+                placeholderTextColor="rgba(255,255,255,0.55)"
+                multiline
+                textAlignVertical="top"
+              />
+              <Text style={styles.aiSectionTitle}>Tokens</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.aiChipRow}>
+                <Pressable style={styles.aiChip} onPress={() => updateAiBuilder({ targetLanguage: aiBuilderConfig.targetLanguage === 'pt' ? 'fr' : 'pt' })}>
+                  <Text style={styles.aiChipLabel}>{getPracticeLanguageLabel(aiBuilderConfig.targetLanguage)}</Text>
+                </Pressable>
+                <Pressable style={styles.aiChip} onPress={() => {
+                  const current = AI_NATIVE_LANGUAGE_OPTIONS.indexOf(aiBuilderConfig.nativeLanguage);
+                  const next = AI_NATIVE_LANGUAGE_OPTIONS[(current + 1 + AI_NATIVE_LANGUAGE_OPTIONS.length) % AI_NATIVE_LANGUAGE_OPTIONS.length];
+                  updateAiBuilder({ nativeLanguage: next });
+                }}>
+                  <Text style={styles.aiChipLabel}>{aiBuilderConfig.nativeLanguage}</Text>
+                </Pressable>
+                <Pressable style={styles.aiChip} onPress={() => {
+                  const idx = AI_TONE_OPTIONS.indexOf(aiBuilderConfig.tone);
+                  updateAiBuilder({ tone: AI_TONE_OPTIONS[(idx + 1) % AI_TONE_OPTIONS.length] });
+                }}>
+                  <Text style={styles.aiChipLabel}>Tone: {aiBuilderConfig.tone}</Text>
+                </Pressable>
+                <Pressable style={styles.aiChip} onPress={() => {
+                  const idx = AI_DIFFICULTY_OPTIONS.indexOf(aiBuilderConfig.difficulty);
+                  updateAiBuilder({ difficulty: AI_DIFFICULTY_OPTIONS[(idx + 1) % AI_DIFFICULTY_OPTIONS.length] });
+                }}>
+                  <Text style={styles.aiChipLabel}>Difficulty: {aiBuilderConfig.difficulty}</Text>
+                </Pressable>
+                <Pressable style={styles.aiChip} onPress={() => {
+                  const idx = AI_MIX_OPTIONS.indexOf(aiBuilderConfig.mix);
+                  updateAiBuilder({ mix: AI_MIX_OPTIONS[(idx + 1) % AI_MIX_OPTIONS.length] });
+                }}>
+                  <Text style={styles.aiChipLabel}>Mix: {aiBuilderConfig.mix}</Text>
+                </Pressable>
+              </ScrollView>
+              <View style={styles.aiThemeWrap}>
+                {AI_THEME_OPTIONS.map((themeOption) => {
+                  const selected = aiBuilderConfig.themes.includes(themeOption);
+                  return (
+                    <Pressable
+                      key={themeOption}
+                      style={[styles.aiThemeChip, selected && styles.aiThemeChipSelected]}
+                      onPress={() => handleToggleTheme(themeOption)}
+                    >
+                      <Text style={styles.aiThemeChipLabel}>{themeOption}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <TextInput
+                style={styles.aiCustomThemeInput}
+                value={aiBuilderConfig.customTheme ?? ''}
+                onChangeText={(value) => updateAiBuilder({ customTheme: value })}
+                placeholder="Custom theme (optional)"
+                placeholderTextColor="rgba(255,255,255,0.55)"
+              />
+              <Text style={styles.aiCountText}>Number of cards: {Math.round(cardCount)}</Text>
+            </ScrollView>
+          </View>
+        </Modal>
       </ImageBackground>
     );
   }
@@ -1891,6 +2045,165 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: theme.textPrimary,
+  },
+  aiInlineCard: {
+    marginTop: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
+    padding: 16,
+    gap: 8,
+  },
+  aiInlineCardPressed: {
+    opacity: 0.93,
+  },
+  aiInlineHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  aiInlineLabel: {
+    fontSize: 12,
+    color: theme.textMuted,
+    fontWeight: '600',
+  },
+  aiInlinePreview: {
+    fontSize: 18,
+    color: theme.textPrimary,
+    fontWeight: '700',
+  },
+  aiInlineFooter: {
+    fontSize: 12,
+    color: theme.textMuted,
+  },
+  aiCopyButton: {
+    minHeight: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.panelBgMuted,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aiCopyButtonDisabled: {
+    opacity: 0.4,
+  },
+  aiCopyButtonPressed: {
+    opacity: 0.92,
+  },
+  aiCopyButtonLabel: {
+    color: theme.textPrimary,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  aiBuilderModal: {
+    flex: 1,
+    backgroundColor: theme.bg0,
+  },
+  aiBuilderTopBar: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: theme.stroke,
+  },
+  aiBuilderTitle: {
+    color: theme.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  aiTopBarButton: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  aiTopBarButtonLabel: {
+    color: theme.link,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  aiBuilderContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 12,
+  },
+  aiSectionTitle: {
+    color: theme.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  aiIntentInput: {
+    minHeight: 90,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.panelBg,
+    color: theme.textPrimary,
+    padding: 10,
+    fontSize: WEB_INPUT_FONT_SIZE,
+  },
+  aiChipRow: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  aiChip: {
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  aiChipLabel: {
+    color: theme.textPrimary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  aiThemeWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  aiThemeChip: {
+    minHeight: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  aiThemeChipSelected: {
+    backgroundColor: theme.selectedBg,
+    borderColor: theme.selectedBorder,
+  },
+  aiThemeChipLabel: {
+    color: theme.textPrimary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  aiCustomThemeInput: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.panelBg,
+    color: theme.textPrimary,
+    paddingHorizontal: 10,
+    fontSize: WEB_INPUT_FONT_SIZE,
+  },
+  aiCountText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
   },
   pauseButton: {
     position: 'absolute',
