@@ -18,6 +18,7 @@ type StartSessionOptions = {
   cardCount: number;
   customWords?: Word[];
   language?: PracticeLanguage;
+  includeDefaultWords?: boolean;
 };
 
 type StartSessionInput = number | StartSessionOptions;
@@ -149,12 +150,18 @@ function isTypedAnswerCorrect(typedAnswer: string, correctAnswer: string): boole
 
 function normalizeStartSessionInput(input: StartSessionInput): StartSessionOptions {
   if (typeof input === 'number') {
-    return { cardCount: Math.max(0, Math.floor(input)), customWords: [], language: 'pt' };
+    return {
+      cardCount: Math.max(0, Math.floor(input)),
+      customWords: [],
+      language: 'pt',
+      includeDefaultWords: true,
+    };
   }
   return {
     cardCount: Math.max(0, Math.floor(input.cardCount)),
     customWords: input.customWords ?? [],
     language: input.language ?? 'pt',
+    includeDefaultWords: input.includeDefaultWords ?? true,
   };
 }
 
@@ -185,7 +192,7 @@ async function buildSessionDeck(options: StartSessionOptions): Promise<{
 }> {
   const nowMs = Date.now();
   const language = options.language ?? 'pt';
-  const defaultDeck = getWordsForLanguage(language);
+  const defaultDeck = options.includeDefaultWords === false ? [] : getWordsForLanguage(language);
   const knownWordIds = await getKnownWordIds(language);
   const schedules = await getSpacedRepetitionMap(language);
   const filteredDefaultDeck = defaultDeck.filter((word) => !knownWordIds.has(word.id));
@@ -517,6 +524,7 @@ export function useSession() {
       cardCount: cardCount ?? previous?.cardCount ?? 0,
       customWords: previous?.customWords ?? [],
       language: previous?.language ?? 'pt',
+      includeDefaultWords: previous?.includeDefaultWords ?? true,
     };
     void startFromOptions(nextOptions);
   }, [startFromOptions]);

@@ -25,8 +25,6 @@ import { theme, cardSurfaceColors, audioButtonColors } from '../theme';
 
 const SWIPE_THRESHOLD = 120;
 const springConfig = { damping: 18, stiffness: 120 };
-/** Time to show the "Don't know" reveal (word + translation) before advancing. */
-const REVEAL_DONT_KNOW_MS = 1800;
 const customCardSurfaceColors = [
   'rgba(255,255,255,0.24)',
   'rgba(156, 84, 213, 0.12)',
@@ -135,19 +133,11 @@ export function FlashCard({
   }, [onPlayAudio, playbackRate]);
 
   useEffect(() => {
-    if (uiState === 'REVEAL_DONT_KNOW') {
-      const t = setTimeout(onAdvance, REVEAL_DONT_KNOW_MS);
-      return () => clearTimeout(t);
-    }
     if (uiState === 'FEEDBACK_CORRECT') {
       const t = setTimeout(onAdvance, 450);
       return () => clearTimeout(t);
     }
-    if (uiState === 'FEEDBACK_WRONG') {
-      const t = setTimeout(onAdvance, showPhotoPromptCta ? 2500 : 900);
-      return () => clearTimeout(t);
-    }
-  }, [onAdvance, showPhotoPromptCta, uiState]);
+  }, [onAdvance, uiState]);
 
   const panGesture = Gesture.Pan()
     .enabled(!disabled && uiState === 'PROMPT')
@@ -328,7 +318,7 @@ export function FlashCard({
                 {word.pronHintEn != null && (
                   <Text style={styles.pronHint}>{word.pronHintEn}</Text>
                 )}
-                <Text style={styles.autoAdvance}>Next in a moment…</Text>
+                <Text style={styles.autoAdvance}>Tap to continue</Text>
               </View>
               )}
               {uiState === 'FEEDBACK_CORRECT' && !showChoices && (

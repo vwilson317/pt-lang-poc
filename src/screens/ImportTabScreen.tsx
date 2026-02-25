@@ -239,7 +239,10 @@ export function ImportTabScreen() {
           setProgress(100);
           setProgressLabel('Complete');
           setState('DONE');
-          router.push(`/(tabs)/imports/${clip.id}`);
+          router.push({
+            pathname: '/(tabs)/practice',
+            params: { mode: 'words', clipId: clip.id, restartSession: String(Date.now()) },
+          });
         } catch {
           setState('FAILED');
           setErrorMessage('Failed to fetch processing status. Try again.');

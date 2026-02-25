@@ -34,6 +34,7 @@ import {
   createDeck,
   getDecks,
   getSelectedDeckId,
+  getWordCards,
   setSelectedDeck,
   updateWordCardProgress,
 } from '../lib/v11Storage';
@@ -43,7 +44,6 @@ import {
   incrementRunsCount,
   recordWordDontKnow,
   recordWordKnow,
-  getCustomWords,
   saveCustomWords,
   clearCustomWords,
   getPracticeLanguage,
@@ -71,6 +71,7 @@ const MIN_CARDS = 50;
 const DEFAULT_CARDS = 200;
 const MAX_CARDS = DECK_LENGTH;
 const SWIPE_UP_THRESHOLD = 90;
+const WEB_INPUT_FONT_SIZE = Platform.OS === 'web' ? 16 : 14;
 
 type ParsedCustomEntry = {
   term: string;
@@ -99,6 +100,8 @@ type WordHintState = {
   photo?: CardPhotoHint;
   photoPromptDismissed: boolean;
 };
+
+const DEFAULT_DECK_ID = 'default';
 
 function normalizeWordToken(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
@@ -296,6 +299,23 @@ async function readClipboardText(): Promise<string> {
   }
 }
 
+function toDeckWords(cards: FlashCardRecord[], language: PracticeLanguage): Word[] {
+  return cards
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((card) => ({
+      id: `imported-word-${card.id}`,
+      sourceCardId: card.id,
+      term: card.front,
+      en: card.back,
+      isCustom: true,
+      language,
+      photo: card.photo,
+      seenCount: card.seenCount ?? 0,
+      wrongCount: card.wrongCount ?? 0,
+      photoPromptDismissed: card.photoPromptDismissed ?? false,
+    }));
+}
+
 type FlashSessionScreenProps = {
   presetWords?: Word[];
   restartSessionKey?: string;
@@ -329,6 +349,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const [customEditorSource, setCustomEditorSource] = React.useState<CustomEditorSource>('start_screen');
   const [customInputSource, setCustomInputSource] = React.useState<CustomInputSource>('manual');
   const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
+  const [includeDefaultWords, setIncludeDefaultWords] = React.useState(true);
   const [availableDecks, setAvailableDecks] = React.useState<Deck[]>([]);
   const [importDeckMode, setImportDeckMode] = React.useState<ImportDeckMode>('existing');
   const [importDeckId, setImportDeckId] = React.useState<string>('default');
@@ -370,8 +391,12 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           const didLanguageChange =
             hasHydratedLanguageRef.current && language !== practiceLanguage;
           setPracticeLanguage(language);
-          const words = await getCustomWords(language);
+          const selectedDeckId = await getSelectedDeckId();
+          const wordCards = await getWordCards(selectedDeckId);
+          const shouldIncludeDefaultWords = selectedDeckId === DEFAULT_DECK_ID;
+          const words = toDeckWords(wordCards, language);
           if (cancelled) return;
+          setIncludeDefaultWords(shouldIncludeDefaultWords);
           setCustomWords(words);
           if (didLanguageChange) {
             setModalDismissed(false);
@@ -385,6 +410,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
               cardCount: Math.round(cardCount),
               customWords: words,
               language,
+              includeDefaultWords: shouldIncludeDefaultWords,
             });
             const nextLanguageLabel = getPracticeLanguageLabel(language);
             setToastMessage(
@@ -417,6 +443,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       cardCount: 0,
       customWords: presetWords,
       language: presetWords[0]?.language ?? practiceLanguage,
+      includeDefaultWords: false,
     });
   }, [hasPresetWords, practiceLanguage, presetWords, startSession, state]);
 
@@ -501,12 +528,14 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       cardCount: Math.round(cardCount),
       customWords,
       language: practiceLanguage,
+      includeDefaultWords,
     });
   }, [
     cardCount,
     customWords,
     customWordsLoaded,
     hasPresetWords,
+    includeDefaultWords,
     practiceLanguage,
     restartSessionKey,
     startSession,
@@ -655,6 +684,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         targetDeckId = createdDeck.id;
         targetDeckLabel = createdDeck.name;
       }
+      await setSelectedDeck(targetDeckId);
       const nextCustomWords = [...customWords, ...additions];
       setCustomWords(nextCustomWords);
       await saveCustomWords(nextCustomWords, practiceLanguage);
@@ -689,6 +719,21 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       setCustomInputSource('manual');
       setCustomError(null);
       setShowCustomEditor(false);
+      if (!hasPresetWords) {
+        setModalDismissed(false);
+        setStopModalVisible(false);
+        setSkippedCountsById({});
+        setIncorrectCountsById({});
+        lastClearedRef.current = false;
+        lastRecordedCorrectIdRef.current = null;
+        lastRecordedIncorrectIdRef.current = null;
+        startSession({
+          cardCount: Math.round(cardCount),
+          customWords: nextCustomWords,
+          language: practiceLanguage,
+          includeDefaultWords,
+        });
+      }
       const message =
         `Imported ${additions.length} word${additions.length === 1 ? '' : 's'} to ${targetDeckLabel}.`;
       setCustomFeedback(message);
@@ -713,6 +758,10 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     isImporting,
     practiceLanguage,
     refreshDeckTargets,
+    hasPresetWords,
+    cardCount,
+    startSession,
+    includeDefaultWords,
     showNativeCopyToast,
   ]);
 
@@ -1067,9 +1116,14 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       lastClearedRef.current = false;
       lastRecordedCorrectIdRef.current = null;
       lastRecordedIncorrectIdRef.current = null;
-      startSession({ cardCount: count, customWords, language: practiceLanguage });
+      startSession({
+        cardCount: count,
+        customWords,
+        language: practiceLanguage,
+        includeDefaultWords,
+      });
     },
-    [customWords, practiceLanguage, startSession]
+    [customWords, includeDefaultWords, practiceLanguage, startSession]
   );
 
   const handleOpenStopModal = useCallback(() => {
@@ -1683,7 +1737,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.panelBgMuted,
     color: theme.textPrimary,
     padding: 10,
-    fontSize: 14,
+    fontSize: WEB_INPUT_FONT_SIZE,
   },
   customActionRow: {
     flexDirection: 'row',
@@ -1754,7 +1808,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.panelBgMuted,
     color: theme.textPrimary,
     paddingHorizontal: 10,
-    fontSize: 14,
+    fontSize: WEB_INPUT_FONT_SIZE,
   },
   customSaveButton: {
     flex: 1,
