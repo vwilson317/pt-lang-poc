@@ -351,7 +351,10 @@ export function FlashCard({
                       <TouchableOpacity
                         key={i}
                         style={optionStyle}
-                        onPress={() => !isFeedback && onChooseOption(i)}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          if (!isFeedback) onChooseOption(i);
+                        }}
                         disabled={disabled || isFeedback}
                         activeOpacity={0.8}
                       >
