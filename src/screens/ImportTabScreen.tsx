@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import JSZip from 'jszip';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
@@ -17,7 +17,7 @@ import { theme } from '../theme';
 
 type ImportState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'PROCESSING' | 'DONE' | 'FAILED';
 type PickerAsset = DocumentPicker.DocumentPickerAsset & { file?: File; duration?: number };
-type ImportKind = 'media' | 'whatsapp';
+type ImportKind = 'media' | 'whatsapp' | 'clipboard';
 const ANALYTICS_WAIT_MS = 750;
 
 function sanitizeDeckToken(value: string): string {
@@ -124,6 +124,73 @@ function buildWordCardsFromSegments(
   return cards;
 }
 
+type AiCardLine = {
+  front: string;
+  back: string;
+  cardType: 'word' | 'phrase';
+  level?: string;
+  tag?: string;
+};
+
+function parseAiFlashcardLine(line: string): AiCardLine | null {
+  const separatorIdx = line.indexOf('||');
+  const mainPart = separatorIdx >= 0 ? line.slice(0, separatorIdx) : line;
+  const metaPart = separatorIdx >= 0 ? line.slice(separatorIdx + 2) : '';
+  const parts = mainPart.split('|').map((s) => s.trim());
+  if (parts.length < 2) return null;
+  const [front, back] = parts;
+  if (!front || !back) return null;
+  const meta: Record<string, string> = {};
+  for (const kv of metaPart.split(';')) {
+    const eqIdx = kv.indexOf('=');
+    if (eqIdx > 0) meta[kv.slice(0, eqIdx).trim()] = kv.slice(eqIdx + 1).trim();
+  }
+  const cardType: 'word' | 'phrase' = meta['type'] === 'phrase' ? 'phrase' : 'word';
+  return {
+    front,
+    back,
+    cardType,
+    level: meta['level'] ?? undefined,
+    tag: meta['tag'] ?? undefined,
+  };
+}
+
+function parseAiFlashcardText(text: string): AiCardLine[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map(parseAiFlashcardLine)
+    .filter((card): card is AiCardLine => card !== null);
+}
+
+function buildCardsFromAiData(
+  parsed: AiCardLine[],
+  deckId: string,
+  importId: string
+): FlashCardRecord[] {
+  const seen = new Set<string>();
+  const cards: FlashCardRecord[] = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const { front, back, cardType } = parsed[i];
+    if (seen.has(front)) continue;
+    seen.add(front);
+    const slug = sanitizeTokenForCardId(front);
+    if (!slug) continue;
+    const metaParts = [parsed[i].level, parsed[i].tag].filter(Boolean);
+    cards.push({
+      id: `ai-${importId}-${slug}`,
+      deckId,
+      cardType,
+      front,
+      back: back || front,
+      wordType: metaParts.length > 0 ? metaParts.join(' · ') : undefined,
+      createdAt: Date.now() + i,
+    });
+  }
+  return cards;
+}
+
 function scoreZipTextEntry(entryName: string): number {
   const normalized = entryName.toLowerCase().replace(/\\/g, '/');
   const baseName = normalized.split('/').at(-1) ?? normalized;
@@ -208,6 +275,7 @@ export function ImportTabScreen() {
   const [importedWordCount, setImportedWordCount] = useState(0);
   const [importedDeckName, setImportedDeckName] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [clipboardText, setClipboardText] = useState('');
 
   useEffect(() => {
     if (importKind !== 'media') return;
@@ -482,6 +550,59 @@ export function ImportTabScreen() {
     whatsAppTextCache,
   ]);
 
+  const startClipboardImport = useCallback(async () => {
+    if (!clipboardText.trim()) return;
+    setErrorMessage(null);
+    setImportWarning(null);
+    setState('PROCESSING');
+    setProgress(10);
+    setProgressLabel('Parsing flashcards...');
+    try {
+      const parsed = parseAiFlashcardText(clipboardText);
+      if (parsed.length === 0) {
+        setState('FAILED');
+        setErrorMessage(
+          'No valid flashcard lines found.\nExpected format: FRONT | BACK | HINT ||type=word;level=A1'
+        );
+        return;
+      }
+      setProgress(40);
+      setProgressLabel('Creating deck...');
+      const importId = makeId('clip-ai');
+      const deckName = `AI Cards ${importId.slice(-4)}`;
+      const deck = await createDeck(deckName);
+      await setSelectedDeck(deck.id);
+      setProgress(70);
+      setProgressLabel('Building cards...');
+      const cards = buildCardsFromAiData(parsed, deck.id, importId);
+      if (cards.length === 0) {
+        setState('FAILED');
+        setErrorMessage('No cards could be created from the pasted text.');
+        return;
+      }
+      await addCards(cards);
+      setImportedCardsCount(cards.length);
+      setImportedWordCount(cards.length);
+      setImportedDeckName(deck.name);
+      await trackEventBestEffort('ai_clipboard_import_completed', {
+        deck_id: deck.id,
+        deck_name: deck.name,
+        cards: cards.length,
+      });
+      setProgress(100);
+      setProgressLabel('Complete');
+      setState('DONE');
+      router.push({
+        pathname: '/(tabs)/practice',
+        params: { mode: 'words', restartSession: String(Date.now()) },
+      });
+    } catch (error) {
+      setState('FAILED');
+      const fallback = 'Could not import the pasted text.';
+      setErrorMessage(error instanceof Error ? error.message || fallback : fallback);
+    }
+  }, [clipboardText, router]);
+
   const startUpload = useCallback(async () => {
     if (!asset) return;
     if (importKind === 'whatsapp') {
@@ -519,13 +640,71 @@ export function ImportTabScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>Import Content</Text>
-        <Text style={styles.helper}>Choose media or a WhatsApp .txt/.zip thread export.</Text>
+        <Text style={styles.helper}>Choose media, a WhatsApp export, or paste AI flashcards.</Text>
         <Pressable style={styles.primaryButton} onPress={() => void pickFile('media')}>
           <Text style={styles.primaryLabel}>Choose Media</Text>
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={() => void pickFile('whatsapp')}>
           <Text style={styles.secondaryLabel}>Choose WhatsApp TXT/ZIP</Text>
         </Pressable>
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() => {
+            setImportKind('clipboard');
+            setClipboardText('');
+            setState('SELECTED');
+            setErrorMessage(null);
+            setImportWarning(null);
+            setImportedCardsCount(0);
+            setImportedWordCount(0);
+            setImportedDeckName(null);
+          }}
+        >
+          <Text style={styles.secondaryLabel}>Paste AI Cards</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (state === 'SELECTED' && importKind === 'clipboard') {
+    const canImport = clipboardText.trim().length > 0;
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.title}>Paste AI Cards</Text>
+        <Text style={styles.helper}>
+          {'Paste AI-generated flashcards below.\nFormat: FRONT | BACK | HINT ||type=word;level=A1'}
+        </Text>
+        <TextInput
+          style={styles.textInput}
+          multiline
+          value={clipboardText}
+          onChangeText={setClipboardText}
+          placeholder={'Paste flashcard data here...'}
+          placeholderTextColor={theme.textMuted}
+          textAlignVertical="top"
+          autoFocus
+        />
+        {errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
+        <View style={styles.row}>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => {
+              setState('EMPTY');
+              setImportKind('media');
+              setClipboardText('');
+              setErrorMessage(null);
+            }}
+          >
+            <Text style={styles.secondaryLabel}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.primaryButton, !canImport && styles.disabledButton]}
+            onPress={() => void startClipboardImport()}
+            disabled={!canImport}
+          >
+            <Text style={styles.primaryLabel}>Import Cards</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -597,15 +776,23 @@ export function ImportTabScreen() {
   if (state === 'DONE') {
     return (
       <View style={styles.centered}>
-        <Text style={styles.title}>{importKind === 'whatsapp' ? 'Thread imported' : 'Media ready'}</Text>
-        {importKind === 'whatsapp' ? (
+        <Text style={styles.title}>
+          {importKind === 'clipboard'
+            ? 'AI cards imported'
+            : importKind === 'whatsapp'
+            ? 'Thread imported'
+            : 'Media ready'}
+        </Text>
+        {importKind === 'clipboard' ? (
+          <Text style={styles.helper}>Imported {importedCardsCount} flashcards.</Text>
+        ) : importKind === 'whatsapp' ? (
           <Text style={styles.helper}>
             Created {importedWordCount} word cards.
           </Text>
         ) : (
           <Text style={styles.helper}>Created {importedCardsCount} word cards.</Text>
         )}
-        {importKind === 'whatsapp' && importedDeckName && (
+        {(importKind === 'whatsapp' || importKind === 'clipboard') && importedDeckName && (
           <Text style={styles.helper}>Selected deck: {importedDeckName}</Text>
         )}
         {importWarning && <Text style={styles.warning}>{importWarning}</Text>}
@@ -625,6 +812,7 @@ export function ImportTabScreen() {
               setImportedWordCount(0);
               setImportedDeckName(null);
               setWhatsAppTextCache(null);
+              setClipboardText('');
               setProgress(0);
             }}
           >
@@ -651,6 +839,7 @@ export function ImportTabScreen() {
           setImportedWordCount(0);
           setImportedDeckName(null);
           setWhatsAppTextCache(null);
+          setClipboardText('');
           setJobId(null);
           setProgress(0);
         }}
@@ -751,5 +940,21 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
     fontWeight: '700',
     fontSize: 15,
+  },
+  textInput: {
+    width: '100%',
+    maxWidth: 500,
+    height: 220,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.stroke,
+    backgroundColor: theme.surface,
+    color: theme.textPrimary,
+    padding: 12,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  disabledButton: {
+    opacity: 0.4,
   },
 });

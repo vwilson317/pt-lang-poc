@@ -80,6 +80,12 @@ const WEB_INPUT_FONT_SIZE = Platform.OS === 'web' ? 16 : 14;
 const AI_THEME_OPTIONS = ['at the gym', 'while traveling', 'for dating', 'at work', 'for small talk'];
 const AI_NATIVE_LANGUAGE_OPTIONS = ['English', 'Português', 'Français', 'Español'];
 const AI_TONE_OPTIONS: Array<AiBuilderConfig['tone']> = ['casual', 'neutral', 'formal', 'flirty', 'business'];
+const TONE_EMOJI: Record<string, string> = {
+  flirty: '💋 ',
+  casual: '😊 ',
+  formal: '👔 ',
+  business: '💼 ',
+};
 const AI_DIFFICULTY_OPTIONS: Array<AiBuilderConfig['difficulty']> = ['easy', 'standard', 'stretch'];
 const AI_MIX_OPTIONS: Array<AiBuilderConfig['mix']> = ['balanced', 'vocabulary_heavy', 'conversation_heavy'];
 
@@ -152,6 +158,18 @@ function stripCustomLinePrefix(value: string): string {
 function parseStructuredCustomLine(cleanedLine: string): ParsedCustomEntry | null {
   const cleaned = cleanedLine.trim();
   if (!cleaned) return null;
+
+  // Handle AI prompt format: FRONT | BACK | HINT ||metadata
+  if (cleaned.includes('|')) {
+    const mainPart = cleaned.split('||')[0];
+    const parts = mainPart.split('|').map((s) => s.trim());
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      return {
+        term: normalizeWordToken(parts[0]),
+        en: normalizeDefinitionToken(parts[1]),
+      };
+    }
+  }
 
   const colonOrEqualsMatch = cleaned.match(/^(.+?)\s*[:=：]\s*(.+)$/);
   if (colonOrEqualsMatch) {
@@ -319,6 +337,7 @@ function toDeckWords(cards: FlashCardRecord[], language: PracticeLanguage): Word
       en: card.back,
       isCustom: true,
       language,
+      wordType: card.wordType,
       photo: card.photo,
       seenCount: card.seenCount ?? 0,
       wrongCount: card.wrongCount ?? 0,
@@ -1484,7 +1503,67 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
                 <Text style={styles.aiCopyButtonLabel}>Copy</Text>
               </Pressable>
             </View>
-            <Text style={styles.aiInlinePreview}>{aiDerived.preview}</Text>
+            {!aiDerived.copyEnabled ? (
+              <Text style={styles.aiInlinePreview}>Generate AI flashcards for a custom topic</Text>
+            ) : (
+              <View style={styles.aiPromptSummary}>
+                <View style={styles.aiPromptRow}>
+                  <Text style={styles.aiPromptText}>Make </Text>
+                  <Pressable style={styles.aiInlinePill} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{String(Math.round(cardCount))}</Text>
+                  </Pressable>
+                  <Text style={styles.aiPromptText}> </Text>
+                  <Pressable style={styles.aiInlinePill} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{getPracticeLanguageLabel(aiBuilderConfig.targetLanguage)}</Text>
+                  </Pressable>
+                  <Text style={styles.aiPromptText}> cards</Text>
+                </View>
+                {(aiBuilderConfig.themes.length > 0 || Boolean(aiBuilderConfig.customTheme)) && (
+                  <View style={styles.aiPromptRow}>
+                    <Text style={styles.aiPromptText}>for </Text>
+                    {aiBuilderConfig.themes.map((t) => (
+                      <React.Fragment key={t}>
+                        <Pressable style={styles.aiInlinePill} onPress={() => setShowAiBuilder(true)}>
+                          <Text style={styles.aiInlinePillText}>{t}</Text>
+                        </Pressable>
+                        <Text style={styles.aiPromptText}> </Text>
+                      </React.Fragment>
+                    ))}
+                    {Boolean(aiBuilderConfig.customTheme) && (
+                      <Pressable style={styles.aiInlinePill} onPress={() => setShowAiBuilder(true)}>
+                        <Text style={styles.aiInlinePillText}>{aiBuilderConfig.customTheme}</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
+                <View style={styles.aiPromptRow}>
+                  <Pressable style={[styles.aiInlinePill, styles.aiInlinePillTone]} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{(TONE_EMOJI[aiBuilderConfig.tone] ?? '')}{aiBuilderConfig.tone}</Text>
+                  </Pressable>
+                  <Text style={styles.aiPromptText}> · </Text>
+                  <Pressable style={styles.aiInlinePill} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{aiBuilderConfig.difficulty}</Text>
+                  </Pressable>
+                  <Text style={styles.aiPromptText}> · </Text>
+                  <Pressable style={styles.aiInlinePill} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{aiBuilderConfig.mix.replace(/_/g, ' ')}</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.aiPromptRow}>
+                  <Pressable style={[styles.aiInlinePill, styles.aiInlinePillA1]} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{aiDerived.a1Count} A1</Text>
+                  </Pressable>
+                  <Text style={styles.aiPromptText}> + </Text>
+                  <Pressable style={[styles.aiInlinePill, styles.aiInlinePillA2]} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{aiDerived.a2Count} A2</Text>
+                  </Pressable>
+                  <Text style={styles.aiPromptText}> · </Text>
+                  <Pressable style={styles.aiInlinePill} onPress={() => setShowAiBuilder(true)}>
+                    <Text style={styles.aiInlinePillText}>{aiDerived.phraseCount}p / {aiDerived.wordCount}w</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
             <Text style={styles.aiInlineFooter}>🔒 Optimized format for import</Text>
           </Pressable>
           <Pressable
@@ -2071,6 +2150,45 @@ const styles = StyleSheet.create({
   aiInlinePreview: {
     fontSize: 18,
     color: theme.textPrimary,
+    fontWeight: '700',
+  },
+  aiPromptSummary: {
+    gap: 6,
+  },
+  aiPromptRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 2,
+  },
+  aiPromptText: {
+    color: theme.textPrimary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  aiInlinePill: {
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    backgroundColor: theme.selectedBg,
+    borderWidth: 1,
+    borderColor: theme.selectedBorder,
+  },
+  aiInlinePillTone: {
+    backgroundColor: theme.warningBg,
+    borderColor: theme.warningBorder,
+  },
+  aiInlinePillA1: {
+    backgroundColor: theme.successBg,
+    borderColor: theme.successBorder,
+  },
+  aiInlinePillA2: {
+    backgroundColor: theme.warningBg,
+    borderColor: theme.warningBorder,
+  },
+  aiInlinePillText: {
+    color: theme.textPrimary,
+    fontSize: 13,
     fontWeight: '700',
   },
   aiInlineFooter: {
