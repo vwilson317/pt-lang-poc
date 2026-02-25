@@ -68,6 +68,9 @@ type ParsedCustomEntry = {
   en?: string;
 };
 
+type CustomEditorSource = 'start_screen' | 'in_session';
+type CustomInputSource = 'manual' | 'clipboard_prefill';
+
 type ImportDeckMode = 'existing' | 'new';
 
 type MissedWordExportItem = {
@@ -81,7 +84,7 @@ type MissedWordExportItem = {
 };
 
 function normalizeWordToken(value: string): string {
-  return value.replace(/\s+/g, '').trim();
+  return value.trim().replace(/\s+/g, ' ');
 }
 
 function sanitizeWordSlug(value: string): string {
@@ -143,6 +146,33 @@ function parseStructuredCustomLine(cleanedLine: string): ParsedCustomEntry | nul
   return null;
 }
 
+function parseCsvCells(line: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (inQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      cells.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
 function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
   const parsed: ParsedCustomEntry[] = [];
   const seen = new Set<string>();
@@ -164,6 +194,30 @@ function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
     if (structured) {
       pushEntry(structured);
       continue;
+    }
+
+    if (cleanedLine.includes(',')) {
+      const csvCells = parseCsvCells(cleanedLine)
+        .map((cell) => cell.trim())
+        .filter(Boolean);
+      if (csvCells.length >= 2) {
+        if (csvCells.length === 2) {
+          pushEntry({
+            term: csvCells[0],
+            en: normalizeDefinitionToken(csvCells[1]),
+          });
+          continue;
+        }
+        if (csvCells.length % 2 === 0) {
+          for (let index = 0; index < csvCells.length; index += 2) {
+            pushEntry({
+              term: csvCells[index],
+              en: normalizeDefinitionToken(csvCells[index + 1]),
+            });
+          }
+          continue;
+        }
+      }
     }
 
     const tokens = cleanedLine.match(/[^\s,;]+/g) ?? [];
@@ -209,7 +263,7 @@ function parseCustomWordInput(raw: string): ParsedCustomEntry[] {
 function stringifyParsedCustomInput(entries: ParsedCustomEntry[]): string {
   return entries
     .map((entry) => (entry.en ? `${entry.term}:${entry.en}` : entry.term))
-    .join(' ');
+    .join('\n');
 }
 
 function buildMissedWordsListExport(items: MissedWordExportItem[]): string {
@@ -275,6 +329,8 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const [showCustomEditor, setShowCustomEditor] = React.useState(false);
   const [customFeedback, setCustomFeedback] = React.useState<string | null>(null);
   const [customError, setCustomError] = React.useState<string | null>(null);
+  const [customEditorSource, setCustomEditorSource] = React.useState<CustomEditorSource>('start_screen');
+  const [customInputSource, setCustomInputSource] = React.useState<CustomInputSource>('manual');
   const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
   const [availableDecks, setAvailableDecks] = React.useState<Deck[]>([]);
   const [importDeckMode, setImportDeckMode] = React.useState<ImportDeckMode>('existing');
@@ -519,10 +575,19 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       });
     }
     await addCards(importedCards);
+    if (customEditorSource === 'start_screen' && customInputSource === 'clipboard_prefill') {
+      void trackEvent('clipboard_start_screen_cards_added', {
+        language: practiceLanguage,
+        added_count: additions.length,
+        parsed_count: parsedEntries.length,
+        deck_mode: importDeckMode,
+      });
+    }
     await refreshDeckTargets();
     setCustomInput('');
     setNewDeckName('');
     setImportDeckMode('existing');
+    setCustomInputSource('manual');
     setCustomError(null);
     setShowCustomEditor(false);
     setCustomFeedback(
@@ -535,6 +600,8 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     importDeckId,
     importDeckMode,
     newDeckName,
+    customEditorSource,
+    customInputSource,
     practiceLanguage,
     refreshDeckTargets,
   ]);
@@ -552,6 +619,13 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     const nextOpenState = !showCustomEditor;
     setShowCustomEditor(nextOpenState);
     if (!nextOpenState) return;
+    const source: CustomEditorSource = state ? 'in_session' : 'start_screen';
+    setCustomEditorSource(source);
+    setCustomInputSource('manual');
+    void trackEvent('add_cards_button_clicked', {
+      source,
+      language: practiceLanguage,
+    });
     void (async () => {
       try {
         await refreshDeckTargets();
@@ -561,13 +635,14 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         );
         if (!prefilledInput) return;
         setCustomInput(prefilledInput);
+        setCustomInputSource('clipboard_prefill');
         setCustomFeedback(null);
         setCustomError(null);
       } catch {
         // ignore clipboard failures
       }
     })();
-  }, [refreshDeckTargets, showCustomEditor]);
+  }, [practiceLanguage, refreshDeckTargets, showCustomEditor, state]);
 
   const recordSessionSkip = useCallback((wordId: string) => {
     setSkippedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
@@ -868,13 +943,14 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         </Pressable>
       </View>
       <Text style={styles.customEditorHint}>
-        Paste words with optional definitions (ex: casa:house). Import while practicing.
+        Paste words with optional definitions (ex: casa:house or casa,house). Import while practicing.
       </Text>
       <TextInput
         style={styles.customInput}
         value={customInput}
         onChangeText={(value) => {
           setCustomInput(value);
+          setCustomInputSource('manual');
           setCustomFeedback(null);
           setCustomError(null);
         }}
@@ -1063,6 +1139,15 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             disabled={!canStart}
           >
             <Text style={styles.startButtonLabel}>Start</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.startSecondaryButton,
+              pressed && styles.startSecondaryButtonPressed,
+            ]}
+            onPress={handleToggleCustomEditor}
+          >
+            <Text style={styles.startSecondaryButtonLabel}>Add from clipboard</Text>
           </Pressable>
           {customError != null && (
             <Text style={styles.customErrorText}>{customError}</Text>
@@ -1476,6 +1561,24 @@ const styles = StyleSheet.create({
   startButtonLabel: {
     fontSize: theme.buttonLabelSize,
     fontWeight: theme.buttonLabelWeight,
+    color: theme.textPrimary,
+  },
+  startSecondaryButton: {
+    marginTop: 10,
+    minHeight: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    backgroundColor: theme.surface,
+  },
+  startSecondaryButtonPressed: {
+    opacity: 0.9,
+  },
+  startSecondaryButtonLabel: {
+    fontSize: 14,
+    fontWeight: '700',
     color: theme.textPrimary,
   },
   pauseButton: {
