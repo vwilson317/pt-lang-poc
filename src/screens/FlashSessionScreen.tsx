@@ -92,6 +92,7 @@ const AI_MIX_OPTIONS: Array<AiBuilderConfig['mix']> = ['balanced', 'vocabulary_h
 type ParsedCustomEntry = {
   term: string;
   en?: string;
+  pronHintEn?: string;
 };
 
 type CustomEditorSource = 'start_screen' | 'in_session';
@@ -161,12 +162,24 @@ function parseStructuredCustomLine(cleanedLine: string): ParsedCustomEntry | nul
 
   // Handle AI prompt format: FRONT | BACK | HINT ||metadata
   if (cleaned.includes('|')) {
-    const mainPart = cleaned.split('||')[0];
+    const separatorIdx = cleaned.indexOf('||');
+    const mainPart = separatorIdx >= 0 ? cleaned.slice(0, separatorIdx) : cleaned;
+    const metaPart = separatorIdx >= 0 ? cleaned.slice(separatorIdx + 2) : '';
     const parts = mainPart.split('|').map((s) => s.trim());
+    const meta: Record<string, string> = {};
+    for (const kv of metaPart.split(';')) {
+      const eqIdx = kv.indexOf('=');
+      if (eqIdx > 0) {
+        meta[kv.slice(0, eqIdx).trim().toLocaleLowerCase()] = kv.slice(eqIdx + 1).trim();
+      }
+    }
+    const metadataPhonetic =
+      meta['phonetic'] ?? meta['pronunciation'] ?? meta['pron'] ?? meta['phonetics'] ?? undefined;
     if (parts.length >= 2 && parts[0] && parts[1]) {
       return {
         term: normalizeWordToken(parts[0]),
         en: normalizeDefinitionToken(parts[1]),
+        pronHintEn: normalizeDefinitionToken(metadataPhonetic ?? parts[2]),
       };
     }
   }
@@ -335,6 +348,7 @@ function toDeckWords(cards: FlashCardRecord[], language: PracticeLanguage): Word
       sourceCardId: card.id,
       term: card.front,
       en: card.back,
+      pronHintEn: card.pronHintEn,
       isCustom: true,
       language,
       wordType: card.wordType,
@@ -699,6 +713,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           id: `custom-${customSeed}-${index}`,
           term: entry.term,
           en: resolvedDefinition,
+          pronHintEn: entry.pronHintEn,
           isCustom: true,
           language: practiceLanguage,
         });
@@ -742,6 +757,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           cardType: 'word',
           front: word.term,
           back: normalizeDefinitionToken(word.en) ?? word.term,
+          pronHintEn: normalizeDefinitionToken(word.pronHintEn),
           createdAt: importSeed + index,
         });
       }
