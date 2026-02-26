@@ -437,6 +437,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const lastRestartSessionKeyRef = useRef<string | undefined>(undefined);
   const previousUiStateRef = useRef<string | null>(null);
   const previousCardIdRef = useRef<string | null>(null);
+  const previousSelectedDeckIdRef = useRef<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -448,10 +449,13 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             hasHydratedLanguageRef.current && language !== practiceLanguage;
           setPracticeLanguage(language);
           const selectedDeckId = await getSelectedDeckId();
+          const didDeckChange =
+            hasHydratedLanguageRef.current && previousSelectedDeckIdRef.current !== selectedDeckId;
           const wordCards = await getWordCards(selectedDeckId);
           const shouldIncludeDefaultWords = selectedDeckId === DEFAULT_DECK_ID;
           const words = toDeckWords(wordCards, language);
           if (cancelled) return;
+          previousSelectedDeckIdRef.current = selectedDeckId;
           setIncludeDefaultWords(shouldIncludeDefaultWords);
           setCustomWords(words);
           const savedAiConfig = await getAiBuilderConfig();
@@ -459,7 +463,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             ...(savedAiConfig ?? prev),
             targetLanguage: language,
           }));
-          if (didLanguageChange) {
+          if (didLanguageChange || didDeckChange) {
             setModalDismissed(false);
             setStopModalVisible(false);
             setSkippedCountsById({});
@@ -474,8 +478,11 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
               includeDefaultWords: shouldIncludeDefaultWords,
             });
             const nextLanguageLabel = getPracticeLanguageLabel(language);
+            const deckSwitchMessage = didDeckChange ? 'Switched deck. Started a new session.' : '';
             setToastMessage(
-              `Language switched to ${nextLanguageLabel}. Started a new session.`
+              didLanguageChange
+                ? `Language switched to ${nextLanguageLabel}. Started a new session.`
+                : deckSwitchMessage
             );
             if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
             toastTimerRef.current = setTimeout(() => {
@@ -586,25 +593,32 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     if (hasPresetWords || !customWordsLoaded || !restartSessionKey) return;
     if (lastRestartSessionKeyRef.current === restartSessionKey) return;
     lastRestartSessionKeyRef.current = restartSessionKey;
-    setModalDismissed(false);
-    setStopModalVisible(false);
-    setSkippedCountsById({});
-    setIncorrectCountsById({});
-    lastClearedRef.current = false;
-    lastRecordedCorrectIdRef.current = null;
-    lastRecordedIncorrectIdRef.current = null;
-    startSession({
-      cardCount: Math.round(cardCount),
-      customWords,
-      language: practiceLanguage,
-      includeDefaultWords,
-    });
+    void (async () => {
+      const selectedDeckId = await getSelectedDeckId();
+      const wordCards = await getWordCards(selectedDeckId);
+      const shouldIncludeDefaultWords = selectedDeckId === DEFAULT_DECK_ID;
+      const words = toDeckWords(wordCards, practiceLanguage);
+      previousSelectedDeckIdRef.current = selectedDeckId;
+      setIncludeDefaultWords(shouldIncludeDefaultWords);
+      setCustomWords(words);
+      setModalDismissed(false);
+      setStopModalVisible(false);
+      setSkippedCountsById({});
+      setIncorrectCountsById({});
+      lastClearedRef.current = false;
+      lastRecordedCorrectIdRef.current = null;
+      lastRecordedIncorrectIdRef.current = null;
+      startSession({
+        cardCount: Math.round(cardCount),
+        customWords: words,
+        language: practiceLanguage,
+        includeDefaultWords: shouldIncludeDefaultWords,
+      });
+    })();
   }, [
     cardCount,
-    customWords,
     customWordsLoaded,
     hasPresetWords,
-    includeDefaultWords,
     practiceLanguage,
     restartSessionKey,
     startSession,
