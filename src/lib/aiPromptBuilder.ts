@@ -122,7 +122,7 @@ export function buildAiPrompt(
   const strictRules = [
     'Output EXACTLY one flashcard per line.',
     'No numbering, no blank lines, and no duplicate front text.',
-    'Use this metadata format at the end of each line: ||type=<word|phrase>;level=<A1|A2>;tone=<tone>;tag=<approved-tag>.',
+    'Use this metadata format at the end of each line: ||type=<word|phrase>;level=<A1|A2>;tone=<tone>;tag=<approved-tag>;phonetic=<latin phonetic spelling>.',
     `Approved tags only: ${APPROVED_TAGS.join(', ')}.`,
   ];
 
@@ -136,7 +136,7 @@ export function buildAiPrompt(
     `Card mix: ${phraseCount} phrase/sentence cards and ${wordCount} single-word cards.`,
     'Keep content beginner-friendly and practical for real daily conversation.',
     ...strictRules,
-    'Format each line as: FRONT | BACK_TRANSLATION | BACK_HINT ||metadata.',
+    'Format each line as: FRONT | BACK_TRANSLATION | BACK_HINT ||metadata (phonetic must also be in metadata).',
   ].filter((line): line is string => Boolean(line));
 
   return {

@@ -44,8 +44,6 @@ import {
   incrementRunsCount,
   recordWordDontKnow,
   recordWordKnow,
-  saveCustomWords,
-  clearCustomWords,
   getPracticeLanguage,
   getAudioPlaybackRate,
   setAudioPlaybackRate,
@@ -70,8 +68,9 @@ import {
 
 const bgImage = require('../../v1/bg.png');
 
-const MIN_CARDS = 50;
-const DEFAULT_CARDS = 200;
+const MIN_CARDS = 20;
+const DEFAULT_CARDS = 20;
+const CARD_COUNT_STEP = 50;
 const MAX_CARDS = DECK_LENGTH;
 const SWIPE_UP_THRESHOLD = 90;
 const WEB_INPUT_FONT_SIZE = Platform.OS === 'web' ? 16 : 14;
@@ -92,6 +91,7 @@ const AI_MIX_OPTIONS: Array<AiBuilderConfig['mix']> = ['balanced', 'vocabulary_h
 type ParsedCustomEntry = {
   term: string;
   en?: string;
+  pronHintEn?: string;
 };
 
 type CustomEditorSource = 'start_screen' | 'in_session';
@@ -147,6 +147,15 @@ function normalizeDefinitionToken(value: string | undefined): string | undefined
   return normalized ? normalized : undefined;
 }
 
+function clampCardCount(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function buildDefaultImportDeckName(): string {
+  return `Import ${new Date().toISOString().slice(0, 10)}`;
+}
+
 function stripCustomLinePrefix(value: string): string {
   return value
     .trim()
@@ -161,12 +170,24 @@ function parseStructuredCustomLine(cleanedLine: string): ParsedCustomEntry | nul
 
   // Handle AI prompt format: FRONT | BACK | HINT ||metadata
   if (cleaned.includes('|')) {
-    const mainPart = cleaned.split('||')[0];
+    const separatorIdx = cleaned.indexOf('||');
+    const mainPart = separatorIdx >= 0 ? cleaned.slice(0, separatorIdx) : cleaned;
+    const metaPart = separatorIdx >= 0 ? cleaned.slice(separatorIdx + 2) : '';
     const parts = mainPart.split('|').map((s) => s.trim());
+    const meta: Record<string, string> = {};
+    for (const kv of metaPart.split(';')) {
+      const eqIdx = kv.indexOf('=');
+      if (eqIdx > 0) {
+        meta[kv.slice(0, eqIdx).trim().toLocaleLowerCase()] = kv.slice(eqIdx + 1).trim();
+      }
+    }
+    const metadataPhonetic =
+      meta['phonetic'] ?? meta['pronunciation'] ?? meta['pron'] ?? meta['phonetics'] ?? undefined;
     if (parts.length >= 2 && parts[0] && parts[1]) {
       return {
         term: normalizeWordToken(parts[0]),
         en: normalizeDefinitionToken(parts[1]),
+        pronHintEn: normalizeDefinitionToken(metadataPhonetic ?? parts[2]),
       };
     }
   }
@@ -335,6 +356,7 @@ function toDeckWords(cards: FlashCardRecord[], language: PracticeLanguage): Word
       sourceCardId: card.id,
       term: card.front,
       en: card.back,
+      pronHintEn: card.pronHintEn,
       isCustom: true,
       language,
       wordType: card.wordType,
@@ -354,6 +376,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const insets = useSafeAreaInsets();
   const hasPresetWords = presetWords.length > 0;
   const [cardCount, setCardCount] = React.useState(DEFAULT_CARDS);
+  const [cardCountInput, setCardCountInput] = React.useState(String(DEFAULT_CARDS));
   const {
     state,
     currentWord,
@@ -380,9 +403,9 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
   const [includeDefaultWords, setIncludeDefaultWords] = React.useState(true);
   const [availableDecks, setAvailableDecks] = React.useState<Deck[]>([]);
-  const [importDeckMode, setImportDeckMode] = React.useState<ImportDeckMode>('existing');
+  const [importDeckMode, setImportDeckMode] = React.useState<ImportDeckMode>('new');
   const [importDeckId, setImportDeckId] = React.useState<string>('default');
-  const [newDeckName, setNewDeckName] = React.useState('');
+  const [newDeckName, setNewDeckName] = React.useState(buildDefaultImportDeckName());
   const [isImporting, setIsImporting] = React.useState(false);
   const [modalDismissed, setModalDismissed] = React.useState(false);
   const [stopModalVisible, setStopModalVisible] = React.useState(false);
@@ -486,9 +509,13 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   }, [hasPresetWords, practiceLanguage, presetWords, startSession, state]);
 
   useEffect(() => {
-    if (customWords.length === 0 && cardCount < MIN_CARDS) {
-      setCardCount(MIN_CARDS);
+    const minCardsAllowed = customWords.length > 0 ? 0 : MIN_CARDS;
+    const normalized = clampCardCount(cardCount, minCardsAllowed, MAX_CARDS);
+    if (normalized !== cardCount) {
+      setCardCount(normalized);
+      return;
     }
+    setCardCountInput(String(normalized));
   }, [customWords.length, cardCount]);
 
   // When session starts: load playback rate and show gesture demo once per app install
@@ -669,6 +696,36 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     }, 2200);
   }, []);
 
+  const handleCardCountSliderChange = useCallback(
+    (nextValue: number) => {
+      const minCardsAllowed = customWords.length > 0 ? 0 : MIN_CARDS;
+      const normalized = clampCardCount(nextValue, minCardsAllowed, MAX_CARDS);
+      setCardCount(normalized);
+    },
+    [customWords.length]
+  );
+
+  const handleCardCountInputChange = useCallback(
+    (value: string) => {
+      const numericOnly = value.replace(/[^\d]/g, '');
+      setCardCountInput(numericOnly);
+      if (!numericOnly) return;
+      const parsed = Number.parseInt(numericOnly, 10);
+      if (!Number.isFinite(parsed)) return;
+      const minCardsAllowed = customWords.length > 0 ? 0 : MIN_CARDS;
+      const normalized = clampCardCount(parsed, minCardsAllowed, MAX_CARDS);
+      setCardCount(normalized);
+    },
+    [customWords.length]
+  );
+
+  const handleCardCountInputBlur = useCallback(() => {
+    const minCardsAllowed = customWords.length > 0 ? 0 : MIN_CARDS;
+    const fallback = clampCardCount(cardCount, minCardsAllowed, MAX_CARDS);
+    setCardCount(fallback);
+    setCardCountInput(String(fallback));
+  }, [cardCount, customWords.length]);
+
   const handleAddCustomWords = useCallback(async () => {
     if (isImporting) return;
     setIsImporting(true);
@@ -699,6 +756,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           id: `custom-${customSeed}-${index}`,
           term: entry.term,
           en: resolvedDefinition,
+          pronHintEn: entry.pronHintEn,
           isCustom: true,
           language: practiceLanguage,
         });
@@ -714,22 +772,13 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       let targetDeckLabel = availableDecks.find((deck) => deck.id === importDeckId)?.name ?? 'selected deck';
       if (importDeckMode === 'new') {
         const trimmed = newDeckName.trim();
-        if (!trimmed) {
-          const message = 'Enter a name for the new deck.';
-          setCustomFeedback(null);
-          setCustomError(message);
-          showNativeCopyToast(message);
-          return;
-        }
-        const createdDeck = await createDeck(trimmed);
+        const deckName = trimmed || buildDefaultImportDeckName();
+        const createdDeck = await createDeck(deckName);
         await setSelectedDeck(createdDeck.id);
         targetDeckId = createdDeck.id;
         targetDeckLabel = createdDeck.name;
       }
       await setSelectedDeck(targetDeckId);
-      const nextCustomWords = [...customWords, ...additions];
-      setCustomWords(nextCustomWords);
-      await saveCustomWords(nextCustomWords, practiceLanguage);
       const importSeed = Date.now();
       const importedCards: FlashCardRecord[] = [];
       for (let index = 0; index < additions.length; index += 1) {
@@ -742,10 +791,14 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           cardType: 'word',
           front: word.term,
           back: normalizeDefinitionToken(word.en) ?? word.term,
+          pronHintEn: normalizeDefinitionToken(word.pronHintEn),
           createdAt: importSeed + index,
         });
       }
       await addCards(importedCards);
+      const refreshedTargetDeckCards = await getWordCards(targetDeckId);
+      const targetDeckWords = toDeckWords(refreshedTargetDeckCards, practiceLanguage);
+      setCustomWords(targetDeckWords);
       if (customEditorSource === 'start_screen' && customInputSource === 'clipboard_prefill') {
         void trackEvent('clipboard_start_screen_cards_added', {
           language: practiceLanguage,
@@ -756,8 +809,8 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
       }
       await refreshDeckTargets();
       setCustomInput('');
-      setNewDeckName('');
-      setImportDeckMode('existing');
+      setNewDeckName(buildDefaultImportDeckName());
+      setImportDeckMode('new');
       setCustomInputSource('manual');
       setCustomError(null);
       setShowCustomEditor(false);
@@ -771,7 +824,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         lastRecordedIncorrectIdRef.current = null;
         startSession({
           cardCount: Math.round(cardCount),
-          customWords: nextCustomWords,
+          customWords: targetDeckWords,
           language: practiceLanguage,
           includeDefaultWords,
         });
@@ -808,13 +861,12 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   ]);
 
   const handleClearCustomCards = useCallback(async () => {
-    await clearCustomWords(practiceLanguage);
     setCustomWords([]);
     setCustomInput('');
     setCustomError(null);
     setShowCustomEditor(false);
-    setCustomFeedback('Cleared all custom cards.');
-  }, [practiceLanguage]);
+    setCustomFeedback('Cleared the import draft. Imported deck cards remain in their deck.');
+  }, []);
 
   const handleToggleCustomEditor = useCallback(() => {
     const nextOpenState = !showCustomEditor;
@@ -822,6 +874,10 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     if (!nextOpenState) return;
     const source: CustomEditorSource = state ? 'in_session' : 'start_screen';
     setCustomEditorSource(source);
+    setImportDeckMode('new');
+    if (!newDeckName.trim()) {
+      setNewDeckName(buildDefaultImportDeckName());
+    }
     setCustomInputSource('manual');
     void trackEvent('add_cards_button_clicked', {
       source,
@@ -849,7 +905,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         // ignore clipboard failures
       }
     })();
-  }, [practiceLanguage, refreshDeckTargets, showCustomEditor, showNativeCopyToast, state]);
+  }, [newDeckName, practiceLanguage, refreshDeckTargets, showCustomEditor, showNativeCopyToast, state]);
 
   const recordSessionSkip = useCallback((wordId: string) => {
     setSkippedCountsById((prev) => ({ ...prev, [wordId]: (prev[wordId] ?? 0) + 1 }));
@@ -1330,7 +1386,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         )}
       </View>
       <View style={styles.deckTargetSection}>
-        <Text style={styles.deckTargetLabel}>Import target</Text>
+        <Text style={styles.deckTargetLabel}>Import target (defaults to new deck)</Text>
         <View style={styles.deckModeRow}>
           <Pressable
             style={[
@@ -1447,20 +1503,33 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
             Study language: {getPracticeLanguageLabel(practiceLanguage)}
           </Text>
           <Text style={styles.startCount}>{displayCount}</Text>
+          <View style={styles.cardCountInputRow}>
+            <Text style={styles.startHintText}>Manual input</Text>
+            <TextInput
+              style={styles.cardCountInput}
+              value={cardCountInput}
+              onChangeText={handleCardCountInputChange}
+              onBlur={handleCardCountInputBlur}
+              keyboardType="number-pad"
+              placeholder={String(minCardsAllowed)}
+              placeholderTextColor={theme.textMuted}
+              maxLength={4}
+            />
+          </View>
           <Slider
             style={styles.slider}
             minimumValue={minCardsAllowed}
             maximumValue={MAX_CARDS}
-            step={1}
+            step={CARD_COUNT_STEP}
             value={cardCount}
-            onValueChange={setCardCount}
+            onValueChange={handleCardCountSliderChange}
             minimumTrackTintColor={theme.brand}
             maximumTrackTintColor={theme.stroke}
             thumbTintColor={theme.brand}
           />
           <View style={styles.startHint}>
             <Text style={styles.startHintText}>
-              {minCardsAllowed} - {MAX_CARDS} default cards
+              {minCardsAllowed} - {MAX_CARDS} default cards · slider snaps by {CARD_COUNT_STEP}
             </Text>
             <Text style={styles.startHintText}>
               Custom cards loaded: {customWordsLoaded ? customWords.length : '...'}
@@ -1685,6 +1754,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           skippedCount={state.skippedCount}
           guessedCount={state.guessedCount}
           remaining={remaining}
+          deckCount={state.deckCount}
         />
         {state.startedAt != null && (
           <View style={styles.utilityRail}>
@@ -1860,6 +1930,26 @@ const styles = StyleSheet.create({
     color: theme.textPrimary,
     textAlign: 'center',
     marginBottom: 16,
+  },
+  cardCountInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  cardCountInput: {
+    minWidth: 88,
+    borderWidth: 1,
+    borderColor: theme.strokeSoft,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: theme.textPrimary,
+    backgroundColor: theme.surface,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '700',
   },
   slider: {
     width: '100%',
