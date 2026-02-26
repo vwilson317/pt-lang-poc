@@ -44,8 +44,6 @@ import {
   incrementRunsCount,
   recordWordDontKnow,
   recordWordKnow,
-  saveCustomWords,
-  clearCustomWords,
   getPracticeLanguage,
   getAudioPlaybackRate,
   setAudioPlaybackRate,
@@ -781,9 +779,6 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         targetDeckLabel = createdDeck.name;
       }
       await setSelectedDeck(targetDeckId);
-      const nextCustomWords = [...customWords, ...additions];
-      setCustomWords(nextCustomWords);
-      await saveCustomWords(nextCustomWords, practiceLanguage);
       const importSeed = Date.now();
       const importedCards: FlashCardRecord[] = [];
       for (let index = 0; index < additions.length; index += 1) {
@@ -801,6 +796,9 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         });
       }
       await addCards(importedCards);
+      const refreshedTargetDeckCards = await getWordCards(targetDeckId);
+      const targetDeckWords = toDeckWords(refreshedTargetDeckCards, practiceLanguage);
+      setCustomWords(targetDeckWords);
       if (customEditorSource === 'start_screen' && customInputSource === 'clipboard_prefill') {
         void trackEvent('clipboard_start_screen_cards_added', {
           language: practiceLanguage,
@@ -826,7 +824,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         lastRecordedIncorrectIdRef.current = null;
         startSession({
           cardCount: Math.round(cardCount),
-          customWords: nextCustomWords,
+          customWords: targetDeckWords,
           language: practiceLanguage,
           includeDefaultWords,
         });
@@ -863,13 +861,12 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   ]);
 
   const handleClearCustomCards = useCallback(async () => {
-    await clearCustomWords(practiceLanguage);
     setCustomWords([]);
     setCustomInput('');
     setCustomError(null);
     setShowCustomEditor(false);
-    setCustomFeedback('Cleared all custom cards.');
-  }, [practiceLanguage]);
+    setCustomFeedback('Cleared the import draft. Imported deck cards remain in their deck.');
+  }, []);
 
   const handleToggleCustomEditor = useCallback(() => {
     const nextOpenState = !showCustomEditor;
@@ -1757,6 +1754,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           skippedCount={state.skippedCount}
           guessedCount={state.guessedCount}
           remaining={remaining}
+          deckCount={state.deckCount}
         />
         {state.startedAt != null && (
           <View style={styles.utilityRail}>

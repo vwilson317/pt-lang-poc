@@ -9,6 +9,7 @@ type HeaderHUDProps = {
   skippedCount: number;
   guessedCount: number;
   remaining: number;
+  deckCount: number;
   actions?: ReactNode;
 };
 
@@ -18,6 +19,7 @@ export function HeaderHUD({
   skippedCount,
   guessedCount,
   remaining,
+  deckCount,
   actions,
 }: HeaderHUDProps) {
   return (
@@ -44,7 +46,7 @@ export function HeaderHUD({
           </View>
           <View style={styles.remainingPill}>
             <FontAwesome5 name="layer-group" size={theme.iconSizeHud - 2} color={theme.accent400} solid />
-            <Text style={styles.remainingCount}>{remaining}</Text>
+            <Text style={styles.remainingCount}>{remaining}/{deckCount}</Text>
             <Text style={styles.remainingLabel}>left</Text>
           </View>
         </View>
