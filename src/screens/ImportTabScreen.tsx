@@ -134,29 +134,16 @@ type AiCardLine = {
 };
 
 function parseAiFlashcardLine(line: string): AiCardLine | null {
-  const separatorIdx = line.indexOf('||');
-  const mainPart = separatorIdx >= 0 ? line.slice(0, separatorIdx) : line;
-  const metaPart = separatorIdx >= 0 ? line.slice(separatorIdx + 2) : '';
-  const parts = mainPart.split('|').map((s) => s.trim());
-  if (parts.length < 2) return null;
-  const [front, back, hint] = parts;
+  // Format: "Portuguese term : English translation | phonetic"
+  const colonIdx = line.indexOf(' : ');
+  if (colonIdx < 0) return null;
+  const front = line.slice(0, colonIdx).trim();
+  const rest = line.slice(colonIdx + 3).trim();
+  const pipeIdx = rest.indexOf(' | ');
+  const back = pipeIdx >= 0 ? rest.slice(0, pipeIdx).trim() : rest;
+  const phonetic = pipeIdx >= 0 ? rest.slice(pipeIdx + 3).trim() || undefined : undefined;
   if (!front || !back) return null;
-  const meta: Record<string, string> = {};
-  for (const kv of metaPart.split(';')) {
-    const eqIdx = kv.indexOf('=');
-    if (eqIdx > 0) meta[kv.slice(0, eqIdx).trim().toLocaleLowerCase()] = kv.slice(eqIdx + 1).trim();
-  }
-  const phonetic =
-    meta['phonetic'] ?? meta['phonetics'] ?? meta['pronunciation'] ?? meta['pron'] ?? hint;
-  const cardType: 'word' | 'phrase' = meta['type'] === 'phrase' ? 'phrase' : 'word';
-  return {
-    front,
-    back,
-    phonetic: phonetic?.trim() || undefined,
-    cardType,
-    level: meta['level'],
-    tag: meta['tag'],
-  };
+  return { front, back, phonetic, cardType: 'word' };
 }
 
 function parseAiFlashcardText(text: string): AiCardLine[] {
@@ -567,7 +554,7 @@ export function ImportTabScreen() {
       if (parsed.length === 0) {
         setState('FAILED');
         setErrorMessage(
-          'No valid flashcard lines found.\nExpected format: FRONT | BACK | HINT ||type=word;level=A1'
+          'No valid flashcard lines found.\nExpected format: Portuguese : English | phonetic'
         );
         return;
       }
@@ -678,7 +665,7 @@ export function ImportTabScreen() {
         <Text style={styles.title}>Paste AI Cards</Text>
         <Text style={styles.helper}>
           {
-            'Paste AI-generated flashcards below.\nFormat: FRONT | BACK | HINT ||type=word;level=A1;phonetic=foo-NEH-tik'
+            'Paste word pairs below.\nFormat: Portuguese : English | phonetic\nExample: pessoal : everyone / folks | peh-so-AL'
           }
         </Text>
         <TextInput
@@ -686,7 +673,7 @@ export function ImportTabScreen() {
           multiline
           value={clipboardText}
           onChangeText={setClipboardText}
-          placeholder={'Paste flashcard data here...'}
+          placeholder={'Oi : hi | oy\npessoal : everyone / folks | peh-so-AL'}
           placeholderTextColor={theme.textMuted}
           textAlignVertical="top"
           autoFocus
