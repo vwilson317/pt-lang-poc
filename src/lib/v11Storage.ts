@@ -3,6 +3,7 @@ import type { CardPhotoHint, ClipRecord, Deck, DeckCounts, FlashCardRecord } fro
 import type { Word } from '../types/word';
 import { BUILT_IN_PHRASES } from '../data/phrases';
 import { DECK_LENGTH } from '../data/words';
+import { COGNATES } from '../data/cognates';
 
 const KEY_V11_INITIALIZED = 'v11:initialized';
 const KEY_DECKS = 'v11:decks';
@@ -11,6 +12,7 @@ const KEY_CARDS = 'v11:cards';
 const KEY_CLIPS = 'v11:clips';
 const DEFAULT_DECK_ID = 'default';
 const KNOWN_DECK_ID = 'known-cards';
+export const COGNATES_DECK_ID = 'cognates';
 
 function nowMs(): number {
   return Date.now();
@@ -38,6 +40,17 @@ function knownDeck(): Deck {
   };
 }
 
+function cognatesDeck(): Deck {
+  const ts = nowMs();
+  return {
+    id: COGNATES_DECK_ID,
+    name: 'English-Portuguese Cognates',
+    isSelected: false,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+}
+
 async function readJson<T>(key: string, fallback: T): Promise<T> {
   const raw = await AsyncStorage.getItem(key);
   if (!raw) return fallback;
@@ -59,11 +72,12 @@ export async function ensureV11Initialized(): Promise<void> {
     const byId = new Map(decks.map((deck) => [deck.id, deck]));
     if (!byId.has(DEFAULT_DECK_ID)) byId.set(DEFAULT_DECK_ID, defaultDeck());
     if (!byId.has(KNOWN_DECK_ID)) byId.set(KNOWN_DECK_ID, knownDeck());
+    if (!byId.has(COGNATES_DECK_ID)) byId.set(COGNATES_DECK_ID, cognatesDeck());
     await writeJson(KEY_DECKS, Array.from(byId.values()));
     return;
   }
 
-  await writeJson(KEY_DECKS, [defaultDeck(), knownDeck()]);
+  await writeJson(KEY_DECKS, [defaultDeck(), knownDeck(), cognatesDeck()]);
   await AsyncStorage.setItem(KEY_SELECTED_DECK_ID, DEFAULT_DECK_ID);
   await writeJson(KEY_CARDS, []);
   await writeJson(KEY_CLIPS, []);
@@ -247,6 +261,25 @@ export async function ensureDefaultPhraseCards(deckId: string): Promise<void> {
     front: phrase.pt,
     back: phrase.en,
     phraseId: phrase.id,
+    createdAt: seedTs + index,
+  }));
+  await addCards(nextCards);
+}
+
+export async function ensureCognatesCards(): Promise<void> {
+  const cards = await getCardsByDeck(COGNATES_DECK_ID);
+  const existingIds = new Set(cards.map((card) => card.id));
+  const seedTs = nowMs();
+  const nextCards: FlashCardRecord[] = COGNATES.filter(
+    (cognate) => !existingIds.has(`cognate-${cognate.id}`)
+  ).map((cognate, index) => ({
+    id: `cognate-${cognate.id}`,
+    deckId: COGNATES_DECK_ID,
+    cardType: 'word',
+    front: cognate.pt,
+    back: cognate.en,
+    pronHintEn: cognate.pronHintEn,
+    wordType: cognate.wordType,
     createdAt: seedTs + index,
   }));
   await addCards(nextCards);

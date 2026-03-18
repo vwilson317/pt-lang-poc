@@ -31,7 +31,9 @@ import { useSession } from '../state/useSession';
 import { getWordByIdForLanguage, DECK_LENGTH } from '../data/words';
 import {
   addCards,
+  COGNATES_DECK_ID,
   createDeck,
+  ensureCognatesCards,
   getDecks,
   getSelectedDeckId,
   getWordCards,
@@ -451,6 +453,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           const selectedDeckId = await getSelectedDeckId();
           const didDeckChange =
             hasHydratedLanguageRef.current && previousSelectedDeckIdRef.current !== selectedDeckId;
+          if (selectedDeckId === COGNATES_DECK_ID) await ensureCognatesCards();
           const wordCards = await getWordCards(selectedDeckId);
           const shouldIncludeDefaultWords = selectedDeckId === DEFAULT_DECK_ID;
           const words = toDeckWords(wordCards, language);
@@ -595,6 +598,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     lastRestartSessionKeyRef.current = restartSessionKey;
     void (async () => {
       const selectedDeckId = await getSelectedDeckId();
+      if (selectedDeckId === COGNATES_DECK_ID) await ensureCognatesCards();
       const wordCards = await getWordCards(selectedDeckId);
       const shouldIncludeDefaultWords = selectedDeckId === DEFAULT_DECK_ID;
       const words = toDeckWords(wordCards, practiceLanguage);
