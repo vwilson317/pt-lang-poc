@@ -19,10 +19,7 @@ type WordLike = { term: string; audioUrl?: string; language?: PracticeLanguage }
  * Stop any current word audio (TTS or expo-av). No overlapping audio.
  */
 export function stopWordAudio(): void {
-  if (Platform.OS === 'web') {
-    cancelTts();
-    return;
-  }
+  cancelTts();
   void unloadCurrentSound();
 }
 
@@ -40,19 +37,20 @@ async function unloadCurrentSound(): Promise<void> {
 }
 
 /**
- * Play word audio: Web Speech TTS on web (PWA), expo-av on native when audioUrl present.
+ * Play word audio: prefers a recorded audioUrl (expo-av, works on web and native)
+ * and falls back to Web Speech TTS on web (PWA) when no audioUrl is available.
  * Rate is applied to TTS and can be set on native Sound when supported.
  */
 export function playWordAudio(word: WordLike | null | undefined, rate: number = RATE_DEFAULT): void {
   if (!word?.term) return;
 
-  if (Platform.OS === 'web' && isTtsAvailable()) {
-    speakTts(word.term, rate, word.language ?? 'pt');
+  if (word.audioUrl) {
+    void playWordAudioUrl(word.audioUrl, rate);
     return;
   }
 
-  if (word.audioUrl) {
-    playWordAudioUrl(word.audioUrl, rate);
+  if (Platform.OS === 'web' && isTtsAvailable()) {
+    speakTts(word.term, rate, word.language ?? 'pt');
   }
 }
 

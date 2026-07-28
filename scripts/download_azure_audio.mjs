@@ -11,7 +11,7 @@ import path from 'node:path';
  *
  * Optional env vars:
  *   AZURE_SPEECH_VOICE       - neural voice name (default: pt-BR-FranciscaNeural)
- *   AZURE_TTS_OUTPUT_DIR     - output dir (default: assets/audio/pt)
+ *   AZURE_TTS_OUTPUT_DIR     - output dir (default: public/audio/pt)
  *   AZURE_TTS_CONCURRENCY    - parallel requests (default: 4)
  *
  * Usage:
@@ -24,7 +24,7 @@ const wordsFile = path.join(root, 'src', 'data', 'words.ts');
 const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION;
 const AZURE_SPEECH_VOICE = process.env.AZURE_SPEECH_VOICE || 'pt-BR-FranciscaNeural';
-const OUTPUT_DIR = path.resolve(root, process.env.AZURE_TTS_OUTPUT_DIR || 'assets/audio/pt');
+const OUTPUT_DIR = path.resolve(root, process.env.AZURE_TTS_OUTPUT_DIR || 'public/audio/pt');
 const CONCURRENCY = Math.max(1, Number(process.env.AZURE_TTS_CONCURRENCY) || 4);
 
 if (!AZURE_SPEECH_KEY || !AZURE_SPEECH_REGION) {
