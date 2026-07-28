@@ -1,3 +1,4 @@
 node_modules/
 src/data/enLexiconSeed.ts
 src/data/ptLexiconSeed.ts
+assets/audio/
