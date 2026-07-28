@@ -63,14 +63,9 @@ export async function playWordAudioUrl(audioUrl: string, rate: number = RATE_DEF
     }
     const { sound: s } = await Audio.Sound.createAsync(
       { uri: audioUrl },
-      { shouldPlay: true }
+      { shouldPlay: true, rate, shouldCorrectPitch: true }
     );
     sound = s;
-    try {
-      await s.setStatusAsync({ rate });
-    } catch {
-      // rate not supported on this platform
-    }
     s.setOnPlaybackStatusUpdate((status) => {
       if (status.isLoaded && status.didJustFinish) {
         s.unloadAsync();
