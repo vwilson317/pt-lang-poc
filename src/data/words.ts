@@ -738,7 +738,7 @@ function toLocalizedWord(raw: RawWord, language: PracticeLanguage): Word {
     const frTerm = FR_TERMS_BY_ID[raw.id];
     return { ...rest, term: frTerm ?? pt, language };
   }
-  return { ...rest, term: pt, language };
+  return { ...rest, term: pt, language, audioUrl: `/audio/pt/${raw.id}.mp3` };
 }
 
 function shuffle<T>(arr: T[]): T[] {
