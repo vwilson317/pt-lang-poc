@@ -63,7 +63,7 @@ export async function playWordAudioUrl(audioUrl: string, rate: number = RATE_DEF
     }
     const { sound: s } = await Audio.Sound.createAsync(
       { uri: audioUrl },
-      { shouldPlay: true, rate, shouldCorrectPitch: true }
+      { shouldPlay: false, rate, shouldCorrectPitch: true }
     );
     sound = s;
     s.setOnPlaybackStatusUpdate((status) => {
@@ -72,6 +72,11 @@ export async function playWordAudioUrl(audioUrl: string, rate: number = RATE_DEF
         sound = null;
       }
     });
+    // Explicitly (re)apply the rate via the dedicated API before starting
+    // playback: some platforms don't reliably honor `rate` passed only in
+    // createAsync's initial status.
+    await s.setRateAsync(rate, true);
+    await s.playAsync();
   } catch {
     // ignore
   }
