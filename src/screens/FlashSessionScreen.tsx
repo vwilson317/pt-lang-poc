@@ -54,7 +54,7 @@ import {
   getAiBuilderConfig,
   setAiBuilderConfig,
 } from '../lib/storage';
-import { playWordAudio, stopWordAudio } from '../lib/audio';
+import { playWordAudio, playWordAudioTwice, stopWordAudio } from '../lib/audio';
 import { trackEvent } from '../lib/analytics';
 import { theme } from '../theme';
 import { buildAiPrompt, createDefaultAiBuilderConfig, type AiBuilderConfig } from '../lib/aiPromptBuilder';
@@ -1142,16 +1142,17 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     previousCardIdRef.current = nextCardId;
   }, [currentWordHint, patchCurrentWordHint, state?.currentCardId, state?.uiState]);
 
-  // Auto-play by default on every prompt card using persisted playback rate.
+  // Auto-play by default on every prompt card: once at the persisted set
+  // speed, then again at normal (1x) speed after a slight pause.
   useEffect(() => {
     if (state?.uiState !== 'PROMPT' || !currentWord) return;
-    playWordAudio(currentWord, playbackRate);
+    playWordAudioTwice(currentWord, playbackRate);
   }, [state?.currentCardId, state?.uiState, currentWord, playbackRate]);
 
-  // Auto-play when revealing "don't know" (hear the word at current speed)
+  // Auto-play when revealing "don't know" (hear the word at set speed, then 1x)
   useEffect(() => {
     if (state?.uiState === 'REVEAL_DONT_KNOW' && currentWord) {
-      playWordAudio(currentWord, playbackRate);
+      playWordAudioTwice(currentWord, playbackRate);
     }
   }, [state?.uiState, currentWord, playbackRate]);
 

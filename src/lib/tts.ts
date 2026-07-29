@@ -25,10 +25,13 @@ export function cancelTts(): void {
 export function speakTts(
   text: string,
   rate: number,
-  language: PracticeLanguage = 'pt'
+  language: PracticeLanguage = 'pt',
+  onEnd?: () => void
 ): void {
-  if (!text.trim()) return;
-  if (!isWeb()) return;
+  if (!text.trim() || !isWeb()) {
+    onEnd?.();
+    return;
+  }
 
   cancelTts();
 
@@ -36,6 +39,10 @@ export function speakTts(
   u.lang = TTS_VOICE_BY_LANGUAGE[language];
   u.rate = rate;
   u.volume = 1;
+  if (onEnd) {
+    u.onend = () => onEnd();
+    u.onerror = () => onEnd();
+  }
 
   currentUtterance = u;
   window.speechSynthesis.speak(u);

@@ -13,12 +13,27 @@ export const RATE_DECODE = 0.75;
 export const RATE_BASELINE = 1.0;
 export const RATE_CHALLENGE = 1.25;
 
+/** Pause between the set-speed play and the follow-up 1x play in playWordAudioTwice. */
+const SEQUENCE_PAUSE_MS = 450;
+
 type WordLike = { term: string; audioUrl?: string; language?: PracticeLanguage };
+
+let sequenceToken = 0;
+let pendingSequenceTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function clearPendingSequence(): void {
+  if (pendingSequenceTimeout) {
+    clearTimeout(pendingSequenceTimeout);
+    pendingSequenceTimeout = null;
+  }
+}
 
 /**
  * Stop any current word audio (TTS or expo-av). No overlapping audio.
  */
 export function stopWordAudio(): void {
+  sequenceToken += 1;
+  clearPendingSequence();
   cancelTts();
   void unloadCurrentSound();
 }
@@ -54,8 +69,15 @@ export function playWordAudio(word: WordLike | null | undefined, rate: number = 
   }
 }
 
-export async function playWordAudioUrl(audioUrl: string, rate: number = RATE_DEFAULT): Promise<void> {
-  if (!audioUrl) return;
+export async function playWordAudioUrl(
+  audioUrl: string,
+  rate: number = RATE_DEFAULT,
+  onFinish?: () => void
+): Promise<void> {
+  if (!audioUrl) {
+    onFinish?.();
+    return;
+  }
   try {
     if (sound) {
       await sound.unloadAsync();
@@ -70,9 +92,45 @@ export async function playWordAudioUrl(audioUrl: string, rate: number = RATE_DEF
       if (status.isLoaded && status.didJustFinish) {
         s.unloadAsync();
         sound = null;
+        onFinish?.();
       }
     });
   } catch {
-    // ignore
+    onFinish?.();
+  }
+}
+
+/**
+ * Auto-play sequence for a card: plays once at `rate` (the user's set speed),
+ * then after a slight pause, once more at `secondRate` (defaults to normal 1x
+ * speed). Skips the second play if it would be identical to the first.
+ * Cancelled by stopWordAudio() if the card changes mid-sequence.
+ */
+export function playWordAudioTwice(
+  word: WordLike | null | undefined,
+  rate: number,
+  secondRate: number = RATE_BASELINE
+): void {
+  if (!word?.term) return;
+
+  const token = ++sequenceToken;
+  clearPendingSequence();
+
+  const onFirstEnd = () => {
+    if (token !== sequenceToken || secondRate === rate) return;
+    pendingSequenceTimeout = setTimeout(() => {
+      pendingSequenceTimeout = null;
+      if (token !== sequenceToken) return;
+      playWordAudio(word, secondRate);
+    }, SEQUENCE_PAUSE_MS);
+  };
+
+  if (word.audioUrl) {
+    void playWordAudioUrl(word.audioUrl, rate, onFirstEnd);
+    return;
+  }
+
+  if (Platform.OS === 'web' && isTtsAvailable()) {
+    speakTts(word.term, rate, word.language ?? 'pt', onFirstEnd);
   }
 }
