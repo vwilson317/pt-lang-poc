@@ -168,7 +168,7 @@ export async function addKnownWordId(wordId: string, language: PracticeLanguage 
 
 // --- Audio playback speed (v1.1) ---
 
-const VALID_RATES = [0.5, 1.0, 1.5, 2.0] as const;
+const VALID_RATES = [0.5, 0.75, 1.0, 1.5, 2.0] as const;
 const DEFAULT_RATE = 0.5;
 
 export async function getAudioPlaybackRate(): Promise<number> {
@@ -183,7 +183,7 @@ export async function setAudioPlaybackRate(rate: number): Promise<void> {
   await AsyncStorage.setItem(KEY_AUDIO_PLAYBACK_RATE, String(value));
 }
 
-/** Cycle: 0.5 → 1.0 → 1.5 → 2.0 → repeat */
+/** Cycle: 0.5 → 0.75 → 1.0 → 1.5 → 2.0 → repeat */
 export function cycleAudioPlaybackRate(current: number): number {
   const i = VALID_RATES.indexOf(current as (typeof VALID_RATES)[number]);
   const next = i < 0 ? DEFAULT_RATE : VALID_RATES[(i + 1) % VALID_RATES.length];
