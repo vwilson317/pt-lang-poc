@@ -28,7 +28,7 @@ import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
 import { getPracticeLanguageLabel } from '../types/practiceLanguage';
 import { useSession } from '../state/useSession';
-import { getWordByIdForLanguage, DECK_LENGTH } from '../data/words';
+import { getBuiltInWordById, hasBuiltInWords, MAX_BUILT_IN_DECK_LENGTH } from '../data/builtInDecks';
 import {
   addCards,
   createDeck,
@@ -71,7 +71,7 @@ const bgImage = require('../../v1/bg.png');
 const MIN_CARDS = 20;
 const DEFAULT_CARDS = 20;
 const CARD_COUNT_STEP = 50;
-const MAX_CARDS = DECK_LENGTH;
+const MAX_CARDS = MAX_BUILT_IN_DECK_LENGTH;
 const SWIPE_UP_THRESHOLD = 90;
 const WEB_INPUT_FONT_SIZE = Platform.OS === 'web' ? 16 : 14;
 
@@ -116,8 +116,6 @@ type WordHintState = {
   photo?: CardPhotoHint;
   photoPromptDismissed: boolean;
 };
-
-const DEFAULT_DECK_ID = 'default';
 
 function normalizeWordToken(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
@@ -402,6 +400,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
   const [customInputSource, setCustomInputSource] = React.useState<CustomInputSource>('manual');
   const [customWordsLoaded, setCustomWordsLoaded] = React.useState(false);
   const [includeDefaultWords, setIncludeDefaultWords] = React.useState(true);
+  const [builtInDeckId, setBuiltInDeckId] = React.useState<string | undefined>(undefined);
   const [availableDecks, setAvailableDecks] = React.useState<Deck[]>([]);
   const [importDeckMode, setImportDeckMode] = React.useState<ImportDeckMode>('new');
   const [importDeckId, setImportDeckId] = React.useState<string>('default');
@@ -452,11 +451,12 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           const didDeckChange =
             hasHydratedLanguageRef.current && previousSelectedDeckIdRef.current !== selectedDeckId;
           const wordCards = await getWordCards(selectedDeckId);
-          const shouldIncludeDefaultWords = selectedDeckId === DEFAULT_DECK_ID;
+          const shouldIncludeDefaultWords = hasBuiltInWords(selectedDeckId);
           const words = toDeckWords(wordCards, language);
           if (cancelled) return;
           previousSelectedDeckIdRef.current = selectedDeckId;
           setIncludeDefaultWords(shouldIncludeDefaultWords);
+      setBuiltInDeckId(selectedDeckId);
           setCustomWords(words);
           const savedAiConfig = await getAiBuilderConfig();
           setAiBuilderConfigState((prev) => ({
@@ -476,6 +476,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
               customWords: words,
               language,
               includeDefaultWords: shouldIncludeDefaultWords,
+              builtInDeckId: selectedDeckId,
             });
             const nextLanguageLabel = getPracticeLanguageLabel(language);
             const deckSwitchMessage = didDeckChange ? 'Switched deck. Started a new session.' : '';
@@ -596,10 +597,11 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     void (async () => {
       const selectedDeckId = await getSelectedDeckId();
       const wordCards = await getWordCards(selectedDeckId);
-      const shouldIncludeDefaultWords = selectedDeckId === DEFAULT_DECK_ID;
+      const shouldIncludeDefaultWords = hasBuiltInWords(selectedDeckId);
       const words = toDeckWords(wordCards, practiceLanguage);
       previousSelectedDeckIdRef.current = selectedDeckId;
       setIncludeDefaultWords(shouldIncludeDefaultWords);
+      setBuiltInDeckId(selectedDeckId);
       setCustomWords(words);
       setModalDismissed(false);
       setStopModalVisible(false);
@@ -613,6 +615,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         customWords: words,
         language: practiceLanguage,
         includeDefaultWords: shouldIncludeDefaultWords,
+        builtInDeckId: selectedDeckId,
       });
     })();
   }, [
@@ -841,6 +844,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
           customWords: targetDeckWords,
           language: practiceLanguage,
           includeDefaultWords,
+          builtInDeckId,
         });
       }
       const message =
@@ -871,6 +875,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
     cardCount,
     startSession,
     includeDefaultWords,
+    builtInDeckId,
     showNativeCopyToast,
   ]);
 
@@ -1198,7 +1203,7 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         const misses = skipped + incorrect;
         if (misses <= 0) return null;
 
-        const builtInWord = getWordByIdForLanguage(id, practiceLanguage);
+        const builtInWord = getBuiltInWordById(id, practiceLanguage);
         const customWord = builtInWord ? null : customWords.find((word) => word.id === id);
         const word = builtInWord ?? customWord;
         if (!word?.term) return null;
@@ -1233,9 +1238,10 @@ export function FlashSessionScreen({ presetWords = [], restartSessionKey }: Flas
         customWords,
         language: practiceLanguage,
         includeDefaultWords,
+        builtInDeckId,
       });
     },
-    [customWords, includeDefaultWords, practiceLanguage, startSession]
+    [builtInDeckId, customWords, includeDefaultWords, practiceLanguage, startSession]
   );
 
   const handleOpenStopModal = useCallback(() => {
