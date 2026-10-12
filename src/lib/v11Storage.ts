@@ -2,14 +2,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CardPhotoHint, ClipRecord, Deck, DeckCounts, FlashCardRecord } from '../types/v11';
 import type { Word } from '../types/word';
 import { BUILT_IN_PHRASES } from '../data/phrases';
-import { DECK_LENGTH } from '../data/words';
+import { DEFAULT_DECK_ID, VERBS_DECK_ID, getBuiltInDeckLength } from '../data/builtInDecks';
 
 const KEY_V11_INITIALIZED = 'v11:initialized';
 const KEY_DECKS = 'v11:decks';
 const KEY_SELECTED_DECK_ID = 'v11:selectedDeckId';
 const KEY_CARDS = 'v11:cards';
 const KEY_CLIPS = 'v11:clips';
-const DEFAULT_DECK_ID = 'default';
+const KEY_VERBS_DECK_DEFAULTED = 'v11:verbsDeckDefaulted';
 const KNOWN_DECK_ID = 'known-cards';
 
 function nowMs(): number {
@@ -21,6 +21,17 @@ function defaultDeck(): Deck {
   return {
     id: DEFAULT_DECK_ID,
     name: 'Default',
+    isSelected: false,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+}
+
+function verbsDeck(): Deck {
+  const ts = nowMs();
+  return {
+    id: VERBS_DECK_ID,
+    name: 'Verbs',
     isSelected: true,
     createdAt: ts,
     updatedAt: ts,
@@ -59,12 +70,23 @@ export async function ensureV11Initialized(): Promise<void> {
     const byId = new Map(decks.map((deck) => [deck.id, deck]));
     if (!byId.has(DEFAULT_DECK_ID)) byId.set(DEFAULT_DECK_ID, defaultDeck());
     if (!byId.has(KNOWN_DECK_ID)) byId.set(KNOWN_DECK_ID, knownDeck());
-    await writeJson(KEY_DECKS, Array.from(byId.values()));
+    // Keep the Verbs deck first in the list.
+    const verbs = byId.get(VERBS_DECK_ID) ?? verbsDeck();
+    byId.delete(VERBS_DECK_ID);
+    const nextDecks = [verbs, ...byId.values()];
+    // One-time switch so existing installs land on the Verbs deck too.
+    const verbsDefaulted = await AsyncStorage.getItem(KEY_VERBS_DECK_DEFAULTED);
+    if (verbsDefaulted !== 'true') {
+      await AsyncStorage.setItem(KEY_SELECTED_DECK_ID, VERBS_DECK_ID);
+      await AsyncStorage.setItem(KEY_VERBS_DECK_DEFAULTED, 'true');
+    }
+    await writeJson(KEY_DECKS, nextDecks);
     return;
   }
 
-  await writeJson(KEY_DECKS, [defaultDeck(), knownDeck()]);
-  await AsyncStorage.setItem(KEY_SELECTED_DECK_ID, DEFAULT_DECK_ID);
+  await writeJson(KEY_DECKS, [verbsDeck(), defaultDeck(), knownDeck()]);
+  await AsyncStorage.setItem(KEY_SELECTED_DECK_ID, VERBS_DECK_ID);
+  await AsyncStorage.setItem(KEY_VERBS_DECK_DEFAULTED, 'true');
   await writeJson(KEY_CARDS, []);
   await writeJson(KEY_CLIPS, []);
   await AsyncStorage.setItem(KEY_V11_INITIALIZED, 'true');
@@ -72,21 +94,21 @@ export async function ensureV11Initialized(): Promise<void> {
 
 export async function getDecks(): Promise<Deck[]> {
   await ensureV11Initialized();
-  const decks = await readJson<Deck[]>(KEY_DECKS, [defaultDeck()]);
+  const decks = await readJson<Deck[]>(KEY_DECKS, [verbsDeck()]);
   if (decks.length > 0) return decks;
-  return [defaultDeck()];
+  return [verbsDeck()];
 }
 
 export async function getSelectedDeckId(): Promise<string> {
   await ensureV11Initialized();
   const id = await AsyncStorage.getItem(KEY_SELECTED_DECK_ID);
-  return id || DEFAULT_DECK_ID;
+  return id || VERBS_DECK_ID;
 }
 
 export async function getSelectedDeck(): Promise<Deck> {
   const decks = await getDecks();
   const selectedId = await getSelectedDeckId();
-  return decks.find((deck) => deck.id === selectedId) ?? decks[0] ?? defaultDeck();
+  return decks.find((deck) => deck.id === selectedId) ?? decks[0] ?? verbsDeck();
 }
 
 export async function setSelectedDeck(deckId: string): Promise<void> {
@@ -150,8 +172,8 @@ export async function getDeckCounts(deckId: string): Promise<DeckCounts> {
   const sentence = cards.filter((card) => card.cardType === 'sentence').length;
   const storedWordCards = cards.filter((card) => card.cardType === 'word').length;
   const phrase = cards.filter((card) => card.cardType === 'phrase').length;
-  // The default deck always includes the built-in core word deck from src/data/words.ts.
-  const word = deckId === DEFAULT_DECK_ID ? DECK_LENGTH + storedWordCards : storedWordCards;
+  // Built-in decks (core words, verbs) always include their static word lists.
+  const word = getBuiltInDeckLength(deckId) + storedWordCards;
   return {
     total: word + sentence + phrase,
     word,

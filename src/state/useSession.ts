@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionState } from '../types/session';
 import type { Word } from '../types/word';
 import type { PracticeLanguage } from '../types/practiceLanguage';
-import { getShuffledWordIds, getDistractors, getWordsForLanguage } from '../data/words';
+import { getDistractors } from '../data/words';
+import { DEFAULT_DECK_ID, getBuiltInDeckWords } from '../data/builtInDecks';
 import { addKnownWordId, getKnownWordIds, getSpacedRepetitionMap, saveSpacedRepetitionMap } from '../lib/storage';
 import { moveWordToKnownDeck } from '../lib/v11Storage';
 import { trackEvent } from '../lib/analytics';
@@ -19,6 +20,8 @@ type StartSessionOptions = {
   customWords?: Word[];
   language?: PracticeLanguage;
   includeDefaultWords?: boolean;
+  /** Which built-in deck supplies the default words (defaults to the core word deck). */
+  builtInDeckId?: string;
 };
 
 type StartSessionInput = number | StartSessionOptions;
@@ -155,6 +158,7 @@ function normalizeStartSessionInput(input: StartSessionInput): StartSessionOptio
       customWords: [],
       language: 'pt',
       includeDefaultWords: true,
+      builtInDeckId: DEFAULT_DECK_ID,
     };
   }
   return {
@@ -162,6 +166,7 @@ function normalizeStartSessionInput(input: StartSessionInput): StartSessionOptio
     customWords: input.customWords ?? [],
     language: input.language ?? 'pt',
     includeDefaultWords: input.includeDefaultWords ?? true,
+    builtInDeckId: input.builtInDeckId ?? DEFAULT_DECK_ID,
   };
 }
 
@@ -192,15 +197,13 @@ async function buildSessionDeck(options: StartSessionOptions): Promise<{
 }> {
   const nowMs = Date.now();
   const language = options.language ?? 'pt';
-  const defaultDeck = options.includeDefaultWords === false ? [] : getWordsForLanguage(language);
+  const defaultDeck =
+    options.includeDefaultWords === false ? [] : getBuiltInDeckWords(options.builtInDeckId, language);
   const knownWordIds = await getKnownWordIds(language);
   const schedules = await getSpacedRepetitionMap(language);
   const filteredDefaultDeck = defaultDeck.filter((word) => !knownWordIds.has(word.id));
-  const byId = new Map(filteredDefaultDeck.map((word) => [word.id, word]));
 
-  const selectedByShuffle = getShuffledWordIds()
-    .map((id) => byId.get(id))
-    .filter((word): word is Word => word != null);
+  const selectedByShuffle = shuffleArray(filteredDefaultDeck);
   const dueWords: Word[] = [];
   const newWords: Word[] = [];
   const futureWords: Word[] = [];
@@ -525,6 +528,7 @@ export function useSession() {
       customWords: previous?.customWords ?? [],
       language: previous?.language ?? 'pt',
       includeDefaultWords: previous?.includeDefaultWords ?? true,
+      builtInDeckId: previous?.builtInDeckId ?? DEFAULT_DECK_ID,
     };
     void startFromOptions(nextOptions);
   }, [startFromOptions]);
