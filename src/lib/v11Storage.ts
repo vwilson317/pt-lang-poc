@@ -10,6 +10,8 @@ const KEY_SELECTED_DECK_ID = 'v11:selectedDeckId';
 const KEY_CARDS = 'v11:cards';
 const KEY_CLIPS = 'v11:clips';
 const KEY_VERBS_DECK_DEFAULTED = 'v11:verbsDeckDefaulted';
+const CORE_DECK_NAME = 'Core Words';
+const LEGACY_CORE_DECK_NAME = 'Default';
 const KNOWN_DECK_ID = 'known-cards';
 
 function nowMs(): number {
@@ -20,7 +22,7 @@ function defaultDeck(): Deck {
   const ts = nowMs();
   return {
     id: DEFAULT_DECK_ID,
-    name: 'Default',
+    name: CORE_DECK_NAME,
     isSelected: false,
     createdAt: ts,
     updatedAt: ts,
@@ -68,7 +70,9 @@ export async function ensureV11Initialized(): Promise<void> {
   if (initialized === 'true') {
     const decks = await readJson<Deck[]>(KEY_DECKS, [defaultDeck()]);
     const byId = new Map(decks.map((deck) => [deck.id, deck]));
-    if (!byId.has(DEFAULT_DECK_ID)) byId.set(DEFAULT_DECK_ID, defaultDeck());
+    const core = byId.get(DEFAULT_DECK_ID);
+    if (!core) byId.set(DEFAULT_DECK_ID, defaultDeck());
+    else if (core.name === LEGACY_CORE_DECK_NAME) byId.set(DEFAULT_DECK_ID, { ...core, name: CORE_DECK_NAME });
     if (!byId.has(KNOWN_DECK_ID)) byId.set(KNOWN_DECK_ID, knownDeck());
     // Keep the Verbs deck first in the list.
     const verbs = byId.get(VERBS_DECK_ID) ?? verbsDeck();

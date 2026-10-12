@@ -4,27 +4,57 @@ import { getWordsForLanguage } from './words';
 
 /**
  * Built-in "Verbs" deck: every verb from the core word list plus generated
- * conjugation cards (present, preterite, imperfect) for each infinitive.
+ * conjugation cards for each infinitive below.
  *
  * Persons follow Brazilian usage: eu / ele (= ela, você) / nós / eles (= elas, vocês).
+ * The imperative uses você / vocês / nós.
  */
 
-type Tense = 'present' | 'preterite' | 'imperfect';
+type Tense =
+  | 'present'
+  | 'preterite'
+  | 'imperfect'
+  | 'future'
+  | 'conditional'
+  | 'subjunctive'
+  | 'imperative';
 type Forms = [eu: string, ele: string, nos: string, eles: string];
+/** Imperative forms: você, vocês, nós. */
+type ImperativeForms = [voce: string, voces: string, nos: string];
 
 type VerbEntry = {
   inf: string;
   /** English: base form, 3rd-person singular, simple past. */
   en: [base: string, s3: string, past: string];
   /** Irregular Portuguese forms; tenses left out are conjugated regularly. */
-  pt?: Partial<Record<Tense, Forms>>;
+  pt?: Partial<Record<Exclude<Tense, 'imperative'>, Forms>>;
+  /** Irregular future/conditional stem (fazer → far-, dizer → dir-). */
+  futureStem?: string;
   /** English overrides per tense, for verbs the default pattern reads badly. */
-  enForms?: Partial<Record<Tense, Forms>>;
+  enForms?: Partial<Record<Exclude<Tense, 'imperative'>, Forms>>;
+  /** Skip imperative cards for verbs that are rarely used as commands (poder, dever…). */
+  noImperative?: boolean;
 };
 
-const PERSONS = ['eu', 'ele', 'nós', 'eles'] as const;
 const EN_PERSONS = ['I', 'he', 'we', 'they'] as const;
-const TENSES: Tense[] = ['present', 'preterite', 'imperfect'];
+const PERSONS = ['eu', 'ele', 'nós', 'eles'] as const;
+const PERSON_TENSES: Exclude<Tense, 'imperative'>[] = [
+  'present',
+  'preterite',
+  'imperfect',
+  'future',
+  'conditional',
+  'subjunctive',
+];
+const TENSE_LABELS: Record<Tense, string> = {
+  present: 'present',
+  preterite: 'preterite',
+  imperfect: 'imperfect',
+  future: 'future',
+  conditional: 'conditional',
+  subjunctive: 'present subjunctive',
+  imperative: 'imperative',
+};
 
 const VERBS: VerbEntry[] = [
   {
@@ -34,11 +64,13 @@ const VERBS: VerbEntry[] = [
       present: ['sou', 'é', 'somos', 'são'],
       preterite: ['fui', 'foi', 'fomos', 'foram'],
       imperfect: ['era', 'era', 'éramos', 'eram'],
+      subjunctive: ['seja', 'seja', 'sejamos', 'sejam'],
     },
     enForms: {
       present: ['I am', 'he is', 'we are', 'they are'],
       preterite: ['I was', 'he was', 'we were', 'they were'],
       imperfect: ['I used to be', 'he used to be', 'we used to be', 'they used to be'],
+      subjunctive: ['that I be', 'that he be', 'that we be', 'that they be'],
     },
   },
   {
@@ -47,11 +79,15 @@ const VERBS: VerbEntry[] = [
     pt: {
       present: ['estou', 'está', 'estamos', 'estão'],
       preterite: ['estive', 'esteve', 'estivemos', 'estiveram'],
+      subjunctive: ['esteja', 'esteja', 'estejamos', 'estejam'],
     },
     enForms: {
       present: ['I am (now)', 'he is (now)', 'we are (now)', 'they are (now)'],
       preterite: ['I was (at that point)', 'he was (at that point)', 'we were (at that point)', 'they were (at that point)'],
       imperfect: ['I was (ongoing)', 'he was (ongoing)', 'we were (ongoing)', 'they were (ongoing)'],
+      future: ['I will be (then)', 'he will be (then)', 'we will be (then)', 'they will be (then)'],
+      conditional: ['I would be (then)', 'he would be (then)', 'we would be (then)', 'they would be (then)'],
+      subjunctive: ['that I be (now)', 'that he be (now)', 'that we be (now)', 'that they be (now)'],
     },
   },
   {
@@ -66,6 +102,7 @@ const VERBS: VerbEntry[] = [
   {
     inf: 'fazer',
     en: ['do/make', 'does/makes', 'did/made'],
+    futureStem: 'far',
     pt: {
       present: ['faço', 'faz', 'fazemos', 'fazem'],
       preterite: ['fiz', 'fez', 'fizemos', 'fizeram'],
@@ -77,6 +114,16 @@ const VERBS: VerbEntry[] = [
     pt: {
       present: ['vou', 'vai', 'vamos', 'vão'],
       preterite: ['fui', 'foi', 'fomos', 'foram'],
+      subjunctive: ['vá', 'vá', 'vamos', 'vão'],
+    },
+  },
+  {
+    inf: 'vir',
+    en: ['come', 'comes', 'came'],
+    pt: {
+      present: ['venho', 'vem', 'vimos', 'vêm'],
+      preterite: ['vim', 'veio', 'viemos', 'vieram'],
+      imperfect: ['vinha', 'vinha', 'vínhamos', 'vinham'],
     },
   },
   {
@@ -93,14 +140,27 @@ const VERBS: VerbEntry[] = [
     pt: {
       present: ['dou', 'dá', 'damos', 'dão'],
       preterite: ['dei', 'deu', 'demos', 'deram'],
+      subjunctive: ['dê', 'dê', 'demos', 'deem'],
+    },
+  },
+  {
+    inf: 'pôr',
+    en: ['put (place)', 'puts (places)', 'put (placed)'],
+    futureStem: 'por',
+    pt: {
+      present: ['ponho', 'põe', 'pomos', 'põem'],
+      preterite: ['pus', 'pôs', 'pusemos', 'puseram'],
+      imperfect: ['punha', 'punha', 'púnhamos', 'punham'],
     },
   },
   {
     inf: 'saber',
     en: ['know (a fact)', 'knows (a fact)', 'found out'],
+    noImperative: true,
     pt: {
       present: ['sei', 'sabe', 'sabemos', 'sabem'],
       preterite: ['soube', 'soube', 'soubemos', 'souberam'],
+      subjunctive: ['saiba', 'saiba', 'saibamos', 'saibam'],
     },
     enForms: {
       imperfect: ['I knew (a fact)', 'he knew (a fact)', 'we knew (a fact)', 'they knew (a fact)'],
@@ -124,47 +184,56 @@ const VERBS: VerbEntry[] = [
   {
     inf: 'querer',
     en: ['want', 'wants', 'wanted'],
+    noImperative: true,
     pt: {
       present: ['quero', 'quer', 'queremos', 'querem'],
       preterite: ['quis', 'quis', 'quisemos', 'quiseram'],
+      subjunctive: ['queira', 'queira', 'queiramos', 'queiram'],
     },
   },
   {
     inf: 'poder',
     en: ['can', 'can', 'could'],
+    noImperative: true,
     pt: {
       present: ['posso', 'pode', 'podemos', 'podem'],
       preterite: ['pude', 'pôde', 'pudemos', 'puderam'],
     },
     enForms: {
-      preterite: ['I managed to', 'he managed to', 'we managed to', 'they managed to'],
+      preterite: ['I was able to', 'he was able to', 'we were able to', 'they were able to'],
       imperfect: ['I could', 'he could', 'we could', 'they could'],
+      future: ['I will be able to', 'he will be able to', 'we will be able to', 'they will be able to'],
+      conditional: ['I would be able to', 'he would be able to', 'we would be able to', 'they would be able to'],
     },
   },
-  { inf: 'ficar', en: ['stay', 'stays', 'stayed'] },
-  { inf: 'falar', en: ['speak', 'speaks', 'spoke'] },
-  { inf: 'achar', en: ['think/find', 'thinks/finds', 'thought/found'] },
-  { inf: 'deixar', en: ['leave/let', 'leaves/lets', 'left/let'] },
-  { inf: 'levar', en: ['take', 'takes', 'took'] },
-  { inf: 'chegar', en: ['arrive', 'arrives', 'arrived'] },
-  { inf: 'passar', en: ['pass/spend', 'passes/spends', 'passed/spent'] },
-  { inf: 'voltar', en: ['return', 'returns', 'returned'] },
-  { inf: 'gostar', en: ['like', 'likes', 'liked'] },
-  { inf: 'precisar', en: ['need', 'needs', 'needed'] },
-  { inf: 'começar', en: ['begin', 'begins', 'began'] },
-  { inf: 'trabalhar', en: ['work', 'works', 'worked'] },
-  { inf: 'usar', en: ['use', 'uses', 'used'] },
-  { inf: 'encontrar', en: ['find', 'finds', 'found'] },
-  { inf: 'chamar', en: ['call', 'calls', 'called'] },
-  { inf: 'tentar', en: ['try', 'tries', 'tried'] },
-  { inf: 'perguntar', en: ['ask', 'asks', 'asked'] },
-  { inf: 'responder', en: ['answer', 'answers', 'answered'] },
   {
-    inf: 'sentir',
-    en: ['feel', 'feels', 'felt'],
-    pt: { present: ['sinto', 'sente', 'sentimos', 'sentem'] },
+    inf: 'dever',
+    en: ['must', 'must', 'had to'],
+    noImperative: true,
+    enForms: {
+      imperfect: ['I was supposed to', 'he was supposed to', 'we were supposed to', 'they were supposed to'],
+      future: ['I will have to', 'he will have to', 'we will have to', 'they will have to'],
+      conditional: ['I should', 'he should', 'we should', 'they should'],
+    },
   },
-  { inf: 'entrar', en: ['enter', 'enters', 'entered'] },
+  {
+    inf: 'dizer',
+    en: ['say', 'says', 'said'],
+    futureStem: 'dir',
+    pt: {
+      present: ['digo', 'diz', 'dizemos', 'dizem'],
+      preterite: ['disse', 'disse', 'dissemos', 'disseram'],
+    },
+  },
+  {
+    inf: 'trazer',
+    en: ['bring', 'brings', 'brought'],
+    futureStem: 'trar',
+    pt: {
+      present: ['trago', 'traz', 'trazemos', 'trazem'],
+      preterite: ['trouxe', 'trouxe', 'trouxemos', 'trouxeram'],
+    },
+  },
   {
     inf: 'sair',
     en: ['leave/go out', 'leaves/goes out', 'left/went out'],
@@ -174,24 +243,108 @@ const VERBS: VerbEntry[] = [
       imperfect: ['saía', 'saía', 'saíamos', 'saíam'],
     },
   },
-  { inf: 'viver', en: ['live', 'lives', 'lived'] },
-  { inf: 'olhar', en: ['look', 'looks', 'looked'] },
-  { inf: 'lembrar', en: ['remember', 'remembers', 'remembered'] },
   {
-    inf: 'acontecer',
-    en: ['happen', 'happens', 'happened'],
-    pt: { present: ['aconteço', 'acontece', 'acontecemos', 'acontecem'] },
+    inf: 'cair',
+    en: ['fall', 'falls', 'fell'],
+    pt: {
+      present: ['caio', 'cai', 'caímos', 'caem'],
+      preterite: ['caí', 'caiu', 'caímos', 'caíram'],
+      imperfect: ['caía', 'caía', 'caíamos', 'caíam'],
+    },
   },
-  { inf: 'existir', en: ['exist', 'exists', 'existed'] },
-  { inf: 'abrir', en: ['open', 'opens', 'opened'] },
-  { inf: 'fechar', en: ['close', 'closes', 'closed'] },
-  { inf: 'pagar', en: ['pay', 'pays', 'paid'] },
-  { inf: 'ajudar', en: ['help', 'helps', 'helped'] },
+  {
+    inf: 'ler',
+    en: ['read', 'reads', 'read (past)'],
+    pt: { present: ['leio', 'lê', 'lemos', 'leem'] },
+  },
   {
     inf: 'ouvir',
     en: ['hear', 'hears', 'heard'],
     pt: { present: ['ouço', 'ouve', 'ouvimos', 'ouvem'] },
   },
+  {
+    inf: 'sentir',
+    en: ['feel', 'feels', 'felt'],
+    pt: { present: ['sinto', 'sente', 'sentimos', 'sentem'] },
+  },
+  {
+    inf: 'dormir',
+    en: ['sleep', 'sleeps', 'slept'],
+    pt: { present: ['durmo', 'dorme', 'dormimos', 'dormem'] },
+  },
+  {
+    inf: 'pedir',
+    en: ['ask for', 'asks for', 'asked for'],
+    pt: { present: ['peço', 'pede', 'pedimos', 'pedem'] },
+  },
+  {
+    inf: 'perder',
+    en: ['lose', 'loses', 'lost'],
+    pt: { present: ['perco', 'perde', 'perdemos', 'perdem'] },
+  },
+  {
+    inf: 'seguir',
+    en: ['follow', 'follows', 'followed'],
+    pt: { present: ['sigo', 'segue', 'seguimos', 'seguem'] },
+  },
+  {
+    inf: 'conseguir',
+    en: ['manage to', 'manages to', 'managed to'],
+    noImperative: true,
+    pt: { present: ['consigo', 'consegue', 'conseguimos', 'conseguem'] },
+  },
+  {
+    inf: 'preferir',
+    en: ['prefer', 'prefers', 'preferred'],
+    pt: { present: ['prefiro', 'prefere', 'preferimos', 'preferem'] },
+  },
+  {
+    inf: 'acontecer',
+    en: ['happen', 'happens', 'happened'],
+    noImperative: true,
+    pt: { present: ['aconteço', 'acontece', 'acontecemos', 'acontecem'] },
+  },
+  {
+    inf: 'parecer',
+    en: ['seem', 'seems', 'seemed'],
+    noImperative: true,
+    pt: { present: ['pareço', 'parece', 'parecemos', 'parecem'] },
+  },
+  {
+    inf: 'esquecer',
+    en: ['forget', 'forgets', 'forgot'],
+    pt: { present: ['esqueço', 'esquece', 'esquecemos', 'esquecem'] },
+  },
+  { inf: 'ficar', en: ['stay', 'stays', 'stayed'] },
+  { inf: 'falar', en: ['speak', 'speaks', 'spoke'] },
+  { inf: 'achar', en: ['think/find', 'thinks/finds', 'thought/found'] },
+  { inf: 'pensar', en: ['think (about)', 'thinks (about)', 'thought (about)'] },
+  { inf: 'deixar', en: ['leave/let', 'leaves/lets', 'left/let'] },
+  { inf: 'levar', en: ['take', 'takes', 'took'] },
+  { inf: 'tomar', en: ['take (a drink/bus)', 'takes (a drink/bus)', 'took (a drink/bus)'] },
+  { inf: 'pegar', en: ['grab/catch', 'grabs/catches', 'grabbed/caught'] },
+  { inf: 'chegar', en: ['arrive', 'arrives', 'arrived'] },
+  { inf: 'passar', en: ['pass/spend', 'passes/spends', 'passed/spent'] },
+  { inf: 'voltar', en: ['return', 'returns', 'returned'] },
+  { inf: 'gostar', en: ['like', 'likes', 'liked'], noImperative: true },
+  { inf: 'precisar', en: ['need', 'needs', 'needed'], noImperative: true },
+  { inf: 'começar', en: ['begin', 'begins', 'began'] },
+  { inf: 'trabalhar', en: ['work', 'works', 'worked'] },
+  { inf: 'usar', en: ['use', 'uses', 'used'] },
+  { inf: 'encontrar', en: ['find', 'finds', 'found'] },
+  { inf: 'chamar', en: ['call', 'calls', 'called'] },
+  { inf: 'tentar', en: ['try', 'tries', 'tried'] },
+  { inf: 'perguntar', en: ['ask', 'asks', 'asked'] },
+  { inf: 'responder', en: ['answer', 'answers', 'answered'] },
+  { inf: 'entrar', en: ['enter', 'enters', 'entered'] },
+  { inf: 'viver', en: ['live', 'lives', 'lived'] },
+  { inf: 'olhar', en: ['look', 'looks', 'looked'] },
+  { inf: 'lembrar', en: ['remember', 'remembers', 'remembered'] },
+  { inf: 'existir', en: ['exist', 'exists', 'existed'], noImperative: true },
+  { inf: 'abrir', en: ['open', 'opens', 'opened'] },
+  { inf: 'fechar', en: ['close', 'closes', 'closed'] },
+  { inf: 'pagar', en: ['pay', 'pays', 'paid'] },
+  { inf: 'ajudar', en: ['help', 'helps', 'helped'] },
   { inf: 'comprar', en: ['buy', 'buys', 'bought'] },
   { inf: 'vender', en: ['sell', 'sells', 'sold'] },
   { inf: 'morar', en: ['live (reside)', 'lives (resides)', 'lived (resided)'] },
@@ -200,36 +353,29 @@ const VERBS: VerbEntry[] = [
   { inf: 'entender', en: ['understand', 'understands', 'understood'] },
   { inf: 'mudar', en: ['change', 'changes', 'changed'] },
   { inf: 'esperar', en: ['wait/hope', 'waits/hopes', 'waited/hoped'] },
-  {
-    inf: 'dormir',
-    en: ['sleep', 'sleeps', 'slept'],
-    pt: { present: ['durmo', 'dorme', 'dormimos', 'dormem'] },
-  },
   { inf: 'acordar', en: ['wake up', 'wakes up', 'woke up'] },
   { inf: 'correr', en: ['run', 'runs', 'ran'] },
   { inf: 'caminhar', en: ['walk', 'walks', 'walked'] },
+  { inf: 'andar', en: ['walk/go around', 'walks/goes around', 'walked/went around'] },
   { inf: 'beber', en: ['drink', 'drinks', 'drank'] },
   { inf: 'comer', en: ['eat', 'eats', 'ate'] },
-  {
-    inf: 'trazer',
-    en: ['bring', 'brings', 'brought'],
-    pt: {
-      present: ['trago', 'traz', 'trazemos', 'trazem'],
-      preterite: ['trouxe', 'trouxe', 'trouxemos', 'trouxeram'],
-    },
-  },
   { inf: 'colocar', en: ['put', 'puts', 'put'] },
-  {
-    inf: 'dizer',
-    en: ['say', 'says', 'said'],
-    pt: {
-      present: ['digo', 'diz', 'dizemos', 'dizem'],
-      preterite: ['disse', 'disse', 'dissemos', 'disseram'],
-    },
-  },
+  { inf: 'escrever', en: ['write', 'writes', 'wrote'] },
+  { inf: 'jogar', en: ['play (a game)', 'plays (a game)', 'played (a game)'] },
+  { inf: 'acreditar', en: ['believe', 'believes', 'believed'] },
+  { inf: 'receber', en: ['receive', 'receives', 'received'] },
+  { inf: 'mostrar', en: ['show', 'shows', 'showed'] },
+  { inf: 'ganhar', en: ['win/earn', 'wins/earns', 'won/earned'] },
+  { inf: 'viajar', en: ['travel', 'travels', 'traveled'] },
+  { inf: 'assistir', en: ['watch', 'watches', 'watched'] },
+  { inf: 'escutar', en: ['listen', 'listens', 'listened'] },
+  { inf: 'mandar', en: ['send', 'sends', 'sent'] },
+  { inf: 'decidir', en: ['decide', 'decides', 'decided'] },
 ];
 
-const REGULAR_ENDINGS: Record<'ar' | 'er' | 'ir', Record<Tense, Forms>> = {
+type Group = 'ar' | 'er' | 'ir';
+
+const REGULAR_ENDINGS: Record<Group, Record<'present' | 'preterite' | 'imperfect', Forms>> = {
   ar: {
     present: ['o', 'a', 'amos', 'am'],
     preterite: ['ei', 'ou', 'amos', 'aram'],
@@ -246,26 +392,65 @@ const REGULAR_ENDINGS: Record<'ar' | 'er' | 'ir', Record<Tense, Forms>> = {
     imperfect: ['ia', 'ia', 'íamos', 'iam'],
   },
 };
+const FUTURE_ENDINGS: Forms = ['ei', 'á', 'emos', 'ão'];
+const CONDITIONAL_ENDINGS: Forms = ['ia', 'ia', 'íamos', 'iam'];
 
-function conjugateRegular(inf: string, tense: Tense): Forms {
-  const group = inf.slice(-2) as 'ar' | 'er' | 'ir';
+function isArVerb(inf: string): boolean {
+  return inf.endsWith('ar');
+}
+
+/** Keeps a stem's hard c/g sound before -e (fic → fiqu, cheg → chegu, começ → comec). */
+function softenStemBeforeE(stem: string): string {
+  if (stem.endsWith('c')) return `${stem.slice(0, -1)}qu`;
+  if (stem.endsWith('g')) return `${stem}u`;
+  if (stem.endsWith('ç')) return `${stem.slice(0, -1)}c`;
+  return stem;
+}
+
+function conjugate(entry: VerbEntry, tense: Exclude<Tense, 'imperative'>): Forms {
+  const override = entry.pt?.[tense];
+  if (override) return override;
+  const { inf } = entry;
+  if (tense === 'future' || tense === 'conditional') {
+    const stem = entry.futureStem ?? inf;
+    const endings = tense === 'future' ? FUTURE_ENDINGS : CONDITIONAL_ENDINGS;
+    return endings.map((ending) => stem + ending) as Forms;
+  }
+  if (tense === 'subjunctive') {
+    // Built from the eu present form: falo → fale, faço → faça, tenho → tenha.
+    const stem = conjugate(entry, 'present')[0].slice(0, -1);
+    const isAr = isArVerb(inf);
+    const base = isAr ? softenStemBeforeE(stem) : stem;
+    const vowel = isAr ? 'e' : 'a';
+    return [`${base}${vowel}`, `${base}${vowel}`, `${base}${vowel}mos`, `${base}${vowel}m`];
+  }
+  const group = inf.slice(-2) as Group;
   const stem = inf.slice(0, -2);
   const forms = REGULAR_ENDINGS[group][tense].map((ending) => stem + ending) as Forms;
-  // Spelling changes before -ei keep the stem's sound (ficar → fiquei, chegar → cheguei, começar → comecei).
   if (group === 'ar' && tense === 'preterite') {
-    if (stem.endsWith('c')) forms[0] = `${stem.slice(0, -1)}quei`;
-    else if (stem.endsWith('g')) forms[0] = `${stem}uei`;
-    else if (stem.endsWith('ç')) forms[0] = `${stem.slice(0, -1)}cei`;
+    forms[0] = `${softenStemBeforeE(stem)}ei`;
   }
   return forms;
 }
 
-function defaultEnglish(entry: VerbEntry, tense: Tense): Forms {
+function defaultEnglish(entry: VerbEntry, tense: Exclude<Tense, 'imperative'>): Forms {
   const [base, s3, past] = entry.en;
   return EN_PERSONS.map((subject, i) => {
-    if (tense === 'preterite') return `${subject} ${past}`;
-    if (tense === 'imperfect') return `${subject} used to ${base}`;
-    return `${subject} ${i === 1 ? s3 : base}`;
+    const present = i === 1 ? s3 : base;
+    switch (tense) {
+      case 'preterite':
+        return `${subject} ${past}`;
+      case 'imperfect':
+        return `${subject} used to ${base}`;
+      case 'future':
+        return `${subject} will ${base}`;
+      case 'conditional':
+        return `${subject} would ${base}`;
+      case 'subjunctive':
+        return `that ${subject} ${present}`;
+      default:
+        return `${subject} ${present}`;
+    }
   }) as Forms;
 }
 
@@ -279,22 +464,37 @@ function slug(value: string): string {
 
 function buildConjugationWords(): Word[] {
   const out: Word[] = [];
+  const push = (entry: VerbEntry, tense: Tense, index: number, term: string, en: string) => {
+    out.push({
+      id: `verb-${slug(entry.inf)}-${tense}-${index}`,
+      term,
+      en,
+      wordType: 'verb',
+      verbLabel: `${TENSE_LABELS[tense]} · ${entry.inf}`,
+      language: 'pt',
+    });
+  };
+
   for (const entry of VERBS) {
-    for (const tense of TENSES) {
-      const ptForms = entry.pt?.[tense] ?? conjugateRegular(entry.inf, tense);
+    for (const tense of PERSON_TENSES) {
+      const ptForms = conjugate(entry, tense);
       const enForms = entry.enForms?.[tense] ?? defaultEnglish(entry, tense);
       ptForms.forEach((form, i) => {
-        out.push({
-          id: `verb-${slug(entry.inf)}-${tense}-${i}`,
-          term: `${PERSONS[i]} ${form}`,
-          en: enForms[i],
-          wordType: 'verb',
-          verbLabel: `${tense} · ${entry.inf}`,
-          language: 'pt',
-        });
+        const term = tense === 'subjunctive' ? `que ${PERSONS[i]} ${form}` : `${PERSONS[i]} ${form}`;
+        push(entry, tense, i, term, enForms[i]);
       });
     }
+    if (!entry.noImperative) {
+      // Affirmative imperative = present subjunctive forms (fale!, falem!, falemos!).
+      const [eu, , nos, eles] = conjugate(entry, 'subjunctive');
+      const base = entry.en[0];
+      const forms: ImperativeForms = [eu, eles, nos];
+      const terms = [`você: ${forms[0]}!`, `vocês: ${forms[1]}!`, `nós: ${forms[2]}!`];
+      const meanings = [`${base}! (you)`, `${base}! (you all)`, `let's ${base}`];
+      terms.forEach((term, i) => push(entry, 'imperative', i, term, meanings[i]));
+    }
   }
+
   // Identical forms (nós falamos = we speak / we spoke, eu fui = I was / I went) share one
   // combined meaning so neither card can show the other's meaning as a wrong answer.
   const meaningsByTerm = new Map<string, string[]>();
